@@ -1,0 +1,182 @@
+.navbar-toggler {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 3rem;
+    height: 2.5rem;
+    padding: 0;
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.navbar-toggler .bi {
+    font-size: 1.5rem;
+}
+
+.top-row {
+    min-height: 3.5rem;
+    background-color: rgba(0, 0, 0, 0.4);
+}
+
+.navbar-brand {
+    font-size: 1.1rem;
+}
+
+.offcanvas {
+    --bs-offcanvas-width: min(20rem, 85vw);
+    color: white;
+    background: linear-gradient(180deg, rgb(5, 39, 103) 0%, #3a0647 70%);
+}
+
+.offcanvas-header {
+    min-height: 3.5rem;
+    background-color: rgba(0, 0, 0, 0.4);
+}
+
+.offcanvas-title {
+    font-size: 1rem;
+}
+
+.nav-scrollable {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    overscroll-behavior-y: contain;
+}
+
+.nav,
+.user-profile {
+    flex-shrink: 0;
+}
+
+.bi {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 1.25rem;
+    width: 1.25rem;
+    height: 1.25rem;
+    font-size: 1.25rem;
+    line-height: 1;
+}
+
+.bi::before {
+    line-height: 1;
+}
+
+.nav-item {
+    font-size: 0.9rem;
+    padding-bottom: 0.5rem;
+}
+
+.nav-item:first-of-type {
+    padding-top: 1rem;
+}
+
+.nav-item:last-of-type {
+    padding-bottom: 1rem;
+}
+
+.nav-item ::deep .nav-link,
+.logout-button {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0.75rem;
+    min-height: 3rem;
+    width: 100%;
+    padding: 0.75rem 1rem;
+    color: #d7d7d7;
+    background: none;
+    border: none;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    text-align: left;
+}
+
+.nav-item ::deep a.active {
+    background-color: rgba(255, 255, 255, 0.37);
+    color: white;
+}
+
+.nav-item ::deep .nav-link:hover,
+.logout-button:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: white;
+}
+
+.nav-item ::deep .nav-link:focus-visible,
+.logout-button:focus-visible,
+.navbar-toggler:focus-visible {
+    outline: 2px solid white;
+    outline-offset: -2px;
+}
+
+.user-profile {
+    margin-top: auto;
+    padding: 1rem 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.user-profile-title {
+    margin-bottom: 1rem;
+    font-size: 0.8rem;
+    color: #d7d7d7;
+}
+
+.user-profile-details {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.user-avatar {
+    flex-basis: 2rem;
+    width: 2rem;
+    height: 2rem;
+    font-size: 2rem;
+}
+
+.user-profile-text {
+    min-width: 0;
+}
+
+.user-name,
+.user-email {
+    display: block;
+    overflow-wrap: anywhere;
+}
+
+.user-name {
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.user-email {
+    margin-top: 0.25rem;
+    color: #d7d7d7;
+    font-size: 0.8rem;
+}
+
+@media (min-width: 641px) {
+    .navbar-toggler,
+    .offcanvas-header {
+        display: none;
+    }
+
+    .offcanvas {
+        position: static;
+        width: 100%;
+        height: calc(100dvh - 3.5rem);
+        visibility: visible;
+        border: none;
+        background: transparent;
+        transform: none;
+        transition: none;
+        z-index: auto;
+    }
+}

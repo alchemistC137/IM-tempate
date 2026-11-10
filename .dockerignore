@@ -1,0 +1,13 @@
+**
+!src/
+!src/**
+**/bin/
+**/obj/
+**/.dataprotection-keys/
+**/.messaging-attachments/
+**/appsettings.Development.json
+**/appsettings.*.local.json
+**/*.user
+**/*.env
+**/*.pfx
+**/*.publishsettings

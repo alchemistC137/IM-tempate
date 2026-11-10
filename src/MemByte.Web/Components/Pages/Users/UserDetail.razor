@@ -1,0 +1,507 @@
+@page "/users/{Id:guid}"
+@rendermode InteractiveServer
+@using System.ComponentModel.DataAnnotations
+@using MemByte.Application.Clients
+@using MemByte.Application.Employees
+@using MemByte.Application.Users
+@using MemByte.Infrastructure.Identity
+@attribute [Authorize(Roles = ApplicationRoleNames.Admin)]
+@inject IUserService UserService
+@inject IEmployeeService EmployeeService
+@inject IClientService ClientService
+@inject NavigationManager NavigationManager
+
+<PageTitle>@(user is null ? "Usuario" : user.DisplayName) - MemByte-IM</PageTitle>
+
+<div class="mb-3">
+    <a href="/users" class="btn btn-outline-secondary btn-sm">
+        <span class="bi bi-arrow-left me-1" aria-hidden="true"></span> Volver al listado
+    </a>
+</div>
+
+@if (loading)
+{
+    <div class="d-flex justify-content-center py-5">
+        <span class="spinner-border" role="status" aria-hidden="true"></span>
+    </div>
+}
+else if (user is null)
+{
+    <div class="alert alert-warning">
+        <span class="bi bi-exclamation-triangle me-2" aria-hidden="true"></span>
+        Usuario no encontrado.
+    </div>
+}
+else
+{
+    <div class="card shadow-sm" style="max-width:700px">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <h1 class="h5 mb-0">
+                <span class="bi bi-person-badge me-2" aria-hidden="true"></span>@user.DisplayName
+            </h1>
+            @if (!editing)
+            {
+                <button class="btn btn-outline-primary btn-sm" @onclick="StartEdit">
+                    <span class="bi bi-pencil me-1" aria-hidden="true"></span> Editar
+                </button>
+            }
+        </div>
+
+        <div class="card-body">
+            @if (saved)
+            {
+                <div class="alert alert-success d-flex align-items-center gap-2 py-2">
+                    <span class="bi bi-check-circle-fill" aria-hidden="true"></span>
+                    Cambios guardados correctamente.
+                </div>
+            }
+
+            @if (actionMessage is not null)
+            {
+                <div class="alert alert-info py-2">
+                    <div class="d-flex align-items-center gap-2 mb-0">
+                        <span class="bi bi-info-circle-fill" aria-hidden="true"></span>
+                        @actionMessage
+                    </div>
+                    @if (generatedActionLink is not null)
+                    {
+                        <div class="input-group input-group-sm mt-2">
+                            <input class="form-control" readonly value="@generatedActionLink" />
+                        </div>
+                    }
+                </div>
+            }
+
+            @if (serverErrors.Count > 0)
+            {
+                <div class="alert alert-danger py-2">
+                    <ul class="mb-0">
+                        @foreach (var error in serverErrors)
+                        {
+                            <li>@error</li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            @if (!editing)
+            {
+                <!-- Vista de sólo lectura -->
+                <dl class="row mb-0">
+                    <dt class="col-sm-4 text-muted small">Email</dt>
+                    <dd class="col-sm-8"><a href="mailto:@user.Email">@user.Email</a></dd>
+
+                    <dt class="col-sm-4 text-muted small">Vínculo</dt>
+                    <dd class="col-sm-8">
+                        @if (user.EmployeeId is not null)
+                        {
+                            <span>Empleado: @user.EmployeeFullName</span>
+                        }
+                        else if (user.ClientId is not null)
+                        {
+                            <span>Cliente: @user.ClientName</span>
+                        }
+                        else
+                        {
+                            <span class="text-muted">Sin vincular</span>
+                        }
+                    </dd>
+
+                    <dt class="col-sm-4 text-muted small">Roles</dt>
+                    <dd class="col-sm-8">
+                        @if (user.Roles.Count == 0)
+                        {
+                            <span class="text-muted">Sin roles asignados</span>
+                        }
+                        else
+                        {
+                            @foreach (var role in user.Roles)
+                            {
+                                <span class="badge bg-secondary-subtle text-secondary me-1">@RoleDisplayName(role)</span>
+                            }
+                        }
+                    </dd>
+
+                    <dt class="col-sm-4 text-muted small">Último acceso</dt>
+                    <dd class="col-sm-8">
+                        @(user.LastLoginAt is null ? "Nunca" : user.LastLoginAt.Value.LocalDateTime.ToString("dd/MM/yyyy HH:mm"))
+                    </dd>
+
+                    <dt class="col-sm-4 text-muted small">MFA obligatorio</dt>
+                    <dd class="col-sm-8">@(user.IsMfaRequired ? "Sí" : "No")</dd>
+
+                    <dt class="col-sm-4 text-muted small">2FA activo</dt>
+                    <dd class="col-sm-8">@(user.TwoFactorEnabled ? "Sí" : "No")</dd>
+
+                    <dt class="col-sm-4 text-muted small">Estado</dt>
+                    <dd class="col-sm-8">
+                        @if (!user.IsActive)
+                        {
+                            <span class="badge bg-secondary-subtle text-secondary">Inactivo</span>
+                        }
+                        else if (user.IsLockedOut)
+                        {
+                            <span class="badge bg-warning-subtle text-warning">Bloqueado temporalmente</span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-success-subtle text-success">Activo</span>
+                        }
+                    </dd>
+                </dl>
+
+                <hr class="my-3" />
+
+                <div class="d-flex gap-2 flex-wrap">
+                    @if (user.IsActive)
+                    {
+                        <button class="btn btn-outline-danger btn-sm" @onclick="() => ToggleActiveAsync(false)" disabled="@actionRunning">
+                            <span class="bi bi-slash-circle me-1" aria-hidden="true"></span> Desactivar cuenta
+                        </button>
+                    }
+                    else
+                    {
+                        <button class="btn btn-outline-success btn-sm" @onclick="() => ToggleActiveAsync(true)" disabled="@actionRunning">
+                            <span class="bi bi-check-circle me-1" aria-hidden="true"></span> Reactivar cuenta
+                        </button>
+                    }
+                    <button class="btn btn-outline-warning btn-sm" @onclick="RevokeSessionsAsync" disabled="@actionRunning">
+                        <span class="bi bi-shield-x me-1" aria-hidden="true"></span> Revocar sesiones activas
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" @onclick="ResetPasswordAsync" disabled="@actionRunning">
+                        <span class="bi bi-key me-1" aria-hidden="true"></span> Resetear contraseña
+                    </button>
+                </div>
+
+                <hr class="my-3" />
+
+                <h2 class="h6 mb-2">Historial de auditoría</h2>
+                @if (auditHistory.Count == 0)
+                {
+                    <p class="text-muted small mb-0">Todavía no hay eventos registrados para este usuario.</p>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th scope="col">Fecha</th>
+                                    <th scope="col">Evento</th>
+                                    <th scope="col">Resultado</th>
+                                    <th scope="col">Detalle</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var entry in auditHistory)
+                                {
+                                    <tr>
+                                        <td class="text-nowrap">@entry.OccurredAt.LocalDateTime.ToString("dd/MM/yyyy HH:mm")</td>
+                                        <td>@AuditEventDisplayName(entry.EventType)</td>
+                                        <td>
+                                            @if (entry.WasSuccessful)
+                                            {
+                                                <span class="badge bg-success-subtle text-success">Correcto</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-danger-subtle text-danger">Fallido</span>
+                                            }
+                                        </td>
+                                        <td class="text-muted small">@(entry.FailureReason ?? "—")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            }
+            else
+            {
+                <!-- Formulario de edición -->
+                <EditForm Model="Input" OnValidSubmit="SaveUserAsync">
+                    <DataAnnotationsValidator />
+
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <label class="form-label">Nombre a mostrar <span class="text-danger">*</span></label>
+                            <InputText class="form-control" @bind-Value="Input.DisplayName" />
+                            <ValidationMessage For="() => Input.DisplayName" class="text-danger small" />
+                        </div>
+                        <div class="col-sm-6">
+                            <label class="form-label">Empleado vinculado</label>
+                            <InputSelect class="form-select" @bind-Value="Input.EmployeeId">
+                                <option value="">— Ninguno —</option>
+                                @foreach (var employee in employees)
+                                {
+                                    <option value="@employee.Id">@employee.FullName</option>
+                                }
+                            </InputSelect>
+                        </div>
+                        <div class="col-sm-6">
+                            <label class="form-label">Cliente vinculado</label>
+                            <InputSelect class="form-select" @bind-Value="Input.ClientId">
+                                <option value="">— Ninguno —</option>
+                                @foreach (var client in clients)
+                                {
+                                    <option value="@client.Id">@client.Name</option>
+                                }
+                            </InputSelect>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label d-block">Roles</label>
+                            @foreach (var role in ApplicationRoleNames.All)
+                            {
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="checkbox" id="@("role-" + role)"
+                                           checked="@Input.Roles.Contains(role)"
+                                           @onchange="e => ToggleRole(role, (bool)e.Value!)" />
+                                    <label class="form-check-label" for="@("role-" + role)">@RoleDisplayName(role)</label>
+                                </div>
+                            }
+                        </div>
+                        <div class="col-12">
+                            <div class="form-check form-switch">
+                                <InputCheckbox class="form-check-input" @bind-Value="Input.IsMfaRequired" id="isMfaRequired" />
+                                <label class="form-check-label" for="isMfaRequired">MFA obligatorio para este usuario</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <hr class="my-4" />
+
+                    <div class="d-flex gap-2 justify-content-end">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="CancelEdit">
+                            Cancelar
+                        </button>
+                        <button type="submit" class="btn btn-primary btn-sm" disabled="@saving">
+                            @if (saving)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                            }
+                            Guardar cambios
+                        </button>
+                    </div>
+                </EditForm>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private UserDto? user;
+    private UserFormModel Input { get; set; } = new();
+    private List<EmployeeDto> employees = [];
+    private List<ClientDto> clients = [];
+    private List<UserAuditEntryDto> auditHistory = [];
+
+    private bool loading = true;
+    private bool editing;
+    private bool saving;
+    private bool saved;
+    private bool actionRunning;
+    private string? actionMessage;
+    private string? generatedActionLink;
+    private List<string> serverErrors = [];
+
+    protected override async Task OnParametersSetAsync()
+    {
+        loading = true;
+        user = await UserService.GetByIdAsync(Id);
+        employees = (await EmployeeService.GetAllAsync()).ToList();
+        clients = (await ClientService.GetAllAsync()).ToList();
+        auditHistory = (await UserService.GetAuditHistoryAsync(Id)).ToList();
+
+        if (user is not null)
+            Input = MapToForm(user);
+
+        loading = false;
+    }
+
+    private void StartEdit()
+    {
+        saved = false;
+        actionMessage = null;
+        generatedActionLink = null;
+        serverErrors = [];
+        editing = true;
+    }
+
+    private void CancelEdit()
+    {
+        if (user is not null)
+            Input = MapToForm(user);
+        editing = false;
+        saved = false;
+        serverErrors = [];
+    }
+
+    private void ToggleRole(string role, bool isChecked)
+    {
+        if (isChecked && !Input.Roles.Contains(role))
+            Input.Roles.Add(role);
+        else if (!isChecked)
+            Input.Roles.Remove(role);
+    }
+
+    private async Task SaveUserAsync()
+    {
+        saving = true;
+        serverErrors = [];
+
+        var result = await UserService.UpdateAsync(Id, new UpdateUserRequest(
+            Input.DisplayName,
+            string.IsNullOrEmpty(Input.EmployeeId) ? null : Guid.Parse(Input.EmployeeId),
+            string.IsNullOrEmpty(Input.ClientId) ? null : Guid.Parse(Input.ClientId),
+            Input.Roles,
+            Input.IsMfaRequired));
+
+        saving = false;
+
+        if (result.Succeeded)
+        {
+            user = result.User;
+            saved = true;
+            editing = false;
+            await RefreshAuditHistoryAsync();
+        }
+        else
+        {
+            serverErrors = result.Errors.ToList();
+        }
+    }
+
+    private async Task ToggleActiveAsync(bool isActive)
+    {
+        actionRunning = true;
+        actionMessage = null;
+        generatedActionLink = null;
+        serverErrors = [];
+
+        var result = await UserService.SetActiveAsync(Id, isActive);
+
+        actionRunning = false;
+
+        if (result.Succeeded)
+        {
+            user = result.User;
+            actionMessage = isActive ? "Cuenta reactivada correctamente." : "Cuenta desactivada y sesiones revocadas.";
+            await RefreshAuditHistoryAsync();
+        }
+        else
+        {
+            serverErrors = result.Errors.ToList();
+        }
+    }
+
+    private async Task RevokeSessionsAsync()
+    {
+        actionRunning = true;
+        actionMessage = null;
+        generatedActionLink = null;
+        serverErrors = [];
+
+        var result = await UserService.RevokeSessionsAsync(Id);
+
+        actionRunning = false;
+
+        if (result.Succeeded)
+        {
+            user = result.User;
+            actionMessage = "Sesiones activas revocadas correctamente.";
+            await RefreshAuditHistoryAsync();
+        }
+        else
+        {
+            serverErrors = result.Errors.ToList();
+        }
+    }
+
+    private async Task ResetPasswordAsync()
+    {
+        actionRunning = true;
+        actionMessage = null;
+        generatedActionLink = null;
+        serverErrors = [];
+
+        var result = await UserService.ResetPasswordAsync(Id);
+
+        actionRunning = false;
+
+        if (result.Succeeded)
+        {
+            user = result.User;
+            actionMessage = "Se ha generado un enlace de un solo uso para restablecer la contraseña. Todavía no " +
+                "hay envío real de email configurado: comparte el siguiente enlace con el usuario (caduca en 24 horas).";
+            generatedActionLink = result.ActionUrlPath is null
+                ? null
+                : $"{NavigationManager.BaseUri.TrimEnd('/')}{result.ActionUrlPath}";
+            await RefreshAuditHistoryAsync();
+        }
+        else
+        {
+            serverErrors = result.Errors.ToList();
+        }
+    }
+
+    private async Task RefreshAuditHistoryAsync()
+    {
+        auditHistory = (await UserService.GetAuditHistoryAsync(Id)).ToList();
+    }
+
+    private static UserFormModel MapToForm(UserDto u) => new()
+    {
+        DisplayName = u.DisplayName,
+        EmployeeId = u.EmployeeId?.ToString() ?? string.Empty,
+        ClientId = u.ClientId?.ToString() ?? string.Empty,
+        Roles = u.Roles.ToList(),
+        IsMfaRequired = u.IsMfaRequired
+    };
+
+    private static string RoleDisplayName(string role) => role switch
+    {
+        "Admin" => "Admin",
+        "AreaManager" => "Jefe de área",
+        "PurchasingAgent" => "Agente de compras",
+        "Employee" => "Empleado",
+        _ => role
+    };
+
+    private static string AuditEventDisplayName(string eventType) => eventType switch
+    {
+        "UserCreatedByAdmin" => "Cuenta creada por un administrador",
+        "UserRoleChanged" => "Roles modificados",
+        "UserDeactivated" => "Cuenta desactivada",
+        "UserReactivated" => "Cuenta reactivada",
+        "PasswordResetRequestedByAdmin" => "Reseteo de contraseña solicitado por un administrador",
+        "PasswordSetViaToken" => "Contraseña fijada mediante enlace de un solo uso",
+        "SessionsRevokedByAdmin" => "Sesiones revocadas por un administrador",
+        "LoginSucceeded" => "Inicio de sesión correcto",
+        "LoginFailed" => "Intento de inicio de sesión fallido",
+        "LoginNotAllowed" => "Inicio de sesión no permitido",
+        "LoginRequiresTwoFactor" => "Inicio de sesión: verificación en dos pasos requerida",
+        "AccountLockedOut" => "Cuenta bloqueada temporalmente",
+        "MfaEnabled" => "Verificación en dos pasos activada",
+        "MfaDisabled" => "Verificación en dos pasos desactivada",
+        "MfaInvalidCode" => "Código de verificación en dos pasos incorrecto",
+        "RecoveryCodesGenerated" => "Códigos de recuperación regenerados",
+        _ => eventType
+    };
+
+    private sealed class UserFormModel
+    {
+        [Required(ErrorMessage = "El nombre a mostrar es obligatorio.")]
+        [MaxLength(200)]
+        public string DisplayName { get; set; } = string.Empty;
+
+        public string EmployeeId { get; set; } = string.Empty;
+
+        public string ClientId { get; set; } = string.Empty;
+
+        public List<string> Roles { get; set; } = [];
+
+        public bool IsMfaRequired { get; set; }
+    }
+}

@@ -1,0 +1,169 @@
+﻿@using MemByte.Infrastructure.Identity
+@using Microsoft.AspNetCore.Identity
+@inject IServiceScopeFactory ScopeFactory
+
+<div class="top-row ps-3 navbar navbar-dark">
+    <div class="container-fluid">
+        <a class="navbar-brand" href="">MemByte.Web</a>
+        <button type="button" class="navbar-toggler" data-bs-toggle="offcanvas"
+                data-bs-target="#navigation-menu" aria-controls="navigation-menu" aria-label="Abrir menú de navegación">
+            <span class="bi bi-list" aria-hidden="true"></span>
+        </button>
+    </div>
+</div>
+
+<div id="navigation-menu" class="offcanvas offcanvas-start" tabindex="-1" aria-labelledby="navigation-title">
+    <div class="offcanvas-header">
+        <h2 id="navigation-title" class="offcanvas-title">Menú de navegación</h2>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas" aria-label="Cerrar menú"></button>
+    </div>
+    <div class="offcanvas-body nav-scrollable">
+        <nav class="nav flex-column" aria-label="Navegación principal" data-bs-dismiss="offcanvas">
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
+                    <span class="bi bi-house-door-fill" aria-hidden="true"></span> Home
+                </NavLink>
+            </div>
+
+            <AuthorizeView>
+                <Authorized>
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="dashboard">
+                            <span class="bi bi-speedometer2" aria-hidden="true"></span> Mi panel
+                        </NavLink>
+                    </div>
+
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="messaging">
+                            <span class="bi bi-chat-left-text" aria-hidden="true"></span> Mensajería
+                        </NavLink>
+                    </div>
+
+                    <AuthorizeView Roles="@($"{ApplicationRoleNames.Admin},{ApplicationRoleNames.AreaManager}")" Context="employeesContext">
+                        <div class="nav-item px-3">
+                            <NavLink class="nav-link" href="employees">
+                                <span class="bi bi-people-fill" aria-hidden="true"></span> Empleados
+                            </NavLink>
+                        </div>
+                    </AuthorizeView>
+
+                    <AuthorizeView Roles="@ApplicationRoleNames.Admin" Context="adminContext">
+                        <div class="nav-item px-3">
+                            <NavLink class="nav-link" href="admin/dashboard">
+                                <span class="bi bi-shield-lock" aria-hidden="true"></span> Administración
+                            </NavLink>
+                        </div>
+                    </AuthorizeView>
+
+                    <AuthorizeView Roles="@ApplicationRoleNames.Admin" Context="clientsContext">
+                        <div class="nav-item px-3">
+                            <NavLink class="nav-link" href="clients">
+                                <span class="bi bi-building" aria-hidden="true"></span> Clientes
+                            </NavLink>
+                        </div>
+                    </AuthorizeView>
+
+                    <AuthorizeView Roles="@ApplicationRoleNames.Admin" Context="catalogContext">
+                        <div class="nav-item px-3">
+                            <NavLink class="nav-link" href="catalog">
+                                <span class="bi bi-shop" aria-hidden="true"></span> Catálogo
+                            </NavLink>
+                        </div>
+                    </AuthorizeView>
+
+                    <AuthorizeView Roles="@(ApplicationRoleNames.Admin + "," + ApplicationRoleNames.Employee)" Context="ordersContext">
+                        <div class="nav-item px-3">
+                            <NavLink class="nav-link" href="orders">
+                                <span class="bi bi-cart4" aria-hidden="true"></span> Pedidos
+                            </NavLink>
+                        </div>
+                    </AuthorizeView>
+
+                    <AuthorizeView Roles="@ApplicationRoleNames.Admin" Context="usersContext">
+                        <div class="nav-item px-3">
+                            <NavLink class="nav-link" href="users">
+                                <span class="bi bi-person-badge" aria-hidden="true"></span> Usuarios
+                            </NavLink>
+                        </div>
+                    </AuthorizeView>
+
+                    <AuthorizeView Roles="@ApplicationRoleNames.AreaManager" Context="managerContext">
+                        <div class="nav-item px-3">
+                            <NavLink class="nav-link" href="team/dashboard">
+                                <span class="bi bi-people-fill" aria-hidden="true"></span> Mi equipo
+                            </NavLink>
+                        </div>
+                    </AuthorizeView>
+
+                    <AuthorizeView Roles="@ApplicationRoleNames.PurchasingAgent" Context="purchasingContext">
+                        <div class="nav-item px-3">
+                            <NavLink class="nav-link" href="purchasing/dashboard">
+                                <span class="bi bi-cart-fill" aria-hidden="true"></span> Compras
+                            </NavLink>
+                        </div>
+                    </AuthorizeView>
+                </Authorized>
+                <NotAuthorized>
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="login">
+                            <span class="bi bi-box-arrow-in-right" aria-hidden="true"></span> Iniciar sesión
+                        </NavLink>
+                    </div>
+                </NotAuthorized>
+            </AuthorizeView>
+        </nav>
+        <AuthorizeView>
+            <Authorized>
+                <section class="user-profile mx-3" aria-labelledby="user-profile-title">
+                    <h2 id="user-profile-title" class="user-profile-title">Mi perfil</h2>
+                    <div class="user-profile-details">
+                        <span class="user-avatar bi bi-person-circle" aria-hidden="true"></span>
+                        <div class="user-profile-text">
+                            <span class="user-name">@displayName</span>
+                            @if (!string.IsNullOrWhiteSpace(email))
+                            {
+                                <span class="user-email">@email</span>
+                            }
+                        </div>
+                    </div>
+                    <form method="post" action="/logout">
+                        <AntiforgeryToken />
+                        <button type="submit" class="nav-link logout-button">
+                            <span class="bi bi-box-arrow-right" aria-hidden="true"></span> Cerrar sesión
+                        </button>
+                    </form>
+                </section>
+            </Authorized>
+        </AuthorizeView>
+    </div>
+</div>
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+
+    private string? displayName;
+    private string? email;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var principal = (await AuthenticationStateTask).User;
+        if (principal.Identity?.IsAuthenticated == true)
+        {
+            // Ámbito propio: el layout se renderiza en paralelo con la página y no
+            // debe compartir con ella el DbContext de la petición.
+            await using var scope = ScopeFactory.CreateAsyncScope();
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var user = await userManager.GetUserAsync(principal);
+            displayName = string.IsNullOrWhiteSpace(user?.DisplayName)
+                ? principal.Identity.Name
+                : user.DisplayName;
+            email = user?.Email;
+        }
+        else
+        {
+            displayName = null;
+            email = null;
+        }
+    }
+}

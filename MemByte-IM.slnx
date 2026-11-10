@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/MemByte.Application/MemByte.Application.csproj" />
+    <Project Path="src/MemByte.Domain/MemByte.Domain.csproj" />
+    <Project Path="src/MemByte.Infrastructure/MemByte.Infrastructure.csproj" />
+    <Project Path="src/MemByte.Shared/MemByte.Shared.csproj" />
+    <Project Path="src/MemByte.Web/MemByte.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/MemByte.Application.Tests/MemByte.Application.Tests.csproj" />
+    <Project Path="tests/MemByte.Domain.Tests/MemByte.Domain.Tests.csproj" />
+    <Project Path="tests/MemByte.Infrastructure.Tests/MemByte.Infrastructure.Tests.csproj" />
+  </Folder>
+</Solution>

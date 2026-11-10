@@ -1,0 +1,171 @@
+@page "/orders"
+@rendermode InteractiveServer
+@using MemByte.Application.Clients
+@using MemByte.Application.Orders
+@using MemByte.Domain.Orders
+@using MemByte.Infrastructure.Identity
+@attribute [Authorize(Roles = ApplicationRoleNames.Admin + "," + ApplicationRoleNames.Employee)]
+@inject IOrderService OrderService
+@inject IClientService ClientService
+@inject NavigationManager NavigationManager
+
+<PageTitle>Pedidos - MemByte-IM</PageTitle>
+
+<div class="mb-3">
+    <h1 class="h4 mb-0">Pedidos</h1>
+    <p class="text-muted small mb-0">
+        Vista global de pedidos de todos los clientes de la plantilla. Selecciona
+        un cliente para gestionar sus pedidos en detalle.
+    </p>
+</div>
+
+@if (loading)
+{
+    <div class="d-flex justify-content-center py-5">
+        <span class="spinner-border" role="status" aria-hidden="true"></span>
+    </div>
+}
+else
+{
+    <div class="card shadow-sm">
+        <div class="card-header bg-white py-2 d-flex flex-wrap gap-2 align-items-center">
+            <input class="form-control form-control-sm" style="max-width:260px"
+                   placeholder="Buscar cliente o número de pedido…"
+                   @bind="searchQuery" @bind:event="oninput" />
+
+            <select class="form-select form-select-sm" style="max-width:200px" @bind="statusFilter">
+                <option value="">Todos los estados</option>
+                @foreach (var status in Enum.GetValues<OrderStatus>())
+                {
+                    <option value="@status">@StatusLabel(status)</option>
+                }
+            </select>
+
+            <div class="ms-auto d-flex gap-2 align-items-center">
+                <select class="form-select form-select-sm" style="max-width:220px" @bind="newOrderClientId">
+                    <option value="">Selecciona un cliente…</option>
+                    @foreach (var client in _clientNames.OrderBy(c => c.Value))
+                    {
+                        <option value="@client.Key">@client.Value</option>
+                    }
+                </select>
+                <button class="btn btn-primary btn-sm text-nowrap" disabled="@(newOrderClientId is null)" @onclick="GoToNewOrder">
+                    <span class="bi bi-plus-lg me-1" aria-hidden="true"></span> Nuevo pedido
+                </button>
+            </div>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Nº pedido</th>
+                        <th>Cliente</th>
+                        <th>Estado</th>
+                        <th>Pago</th>
+                        <th class="text-end">Total</th>
+                        <th>Fecha</th>
+                        <th class="text-end">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (!FilteredOrders.Any())
+                    {
+                        <tr>
+                            <td colspan="7" class="text-center text-muted py-4">
+                                <span class="bi bi-cart fs-4 d-block mb-1" aria-hidden="true"></span>
+                                No se encontraron pedidos con los filtros aplicados.
+                            </td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var order in FilteredOrders)
+                        {
+                            <tr>
+                                <td class="fw-semibold">@order.OrderNumber</td>
+                                <td>@ClientName(order.ClientId)</td>
+                                <td><span class="badge @StatusBadgeClass(order.Status)">@StatusLabel(order.Status)</span></td>
+                                <td>
+                                    @if (order.PaymentStatus == OrderPaymentStatus.Paid)
+                                    {
+                                        <span class="badge bg-success-subtle text-success">Pagado</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-warning-subtle text-warning">Pendiente</span>
+                                    }
+                                </td>
+                                <td class="text-end">@order.Total.ToString("N2")</td>
+                                <td class="small text-muted">@order.CreatedAt.ToLocalTime().ToString("g")</td>
+                                <td class="text-end">
+                                    <button class="btn btn-outline-primary btn-sm" title="Gestionar pedidos del cliente"
+                                            @onclick="() => GoToClientOrders(order.ClientId)">
+                                        <span class="bi bi-box-arrow-up-right me-1" aria-hidden="true"></span> Ver
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@code {
+    private string searchQuery = string.Empty;
+    private OrderStatus? statusFilter;
+    private bool loading = true;
+    private List<OrderSummaryDto> _allOrders = [];
+    private Dictionary<Guid, string> _clientNames = [];
+    private Guid? newOrderClientId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        loading = true;
+        var clients = await ClientService.GetAllAsync();
+        _clientNames = clients.ToDictionary(c => c.Id, c => c.Name);
+        _allOrders = (await OrderService.GetAllOrdersAsync()).ToList();
+        loading = false;
+    }
+
+    private List<OrderSummaryDto> FilteredOrders =>
+        _allOrders
+            .Where(o => statusFilter is null || o.Status == statusFilter)
+            .Where(o => string.IsNullOrWhiteSpace(searchQuery) ||
+                        o.OrderNumber.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                        ClientName(o.ClientId).Contains(searchQuery, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(o => o.CreatedAt)
+            .ToList();
+
+    private string ClientName(Guid clientId) => _clientNames.GetValueOrDefault(clientId, "(cliente desconocido)");
+
+    private void GoToClientOrders(Guid clientId) => NavigationManager.NavigateTo($"/orders/{clientId}");
+
+    private void GoToNewOrder()
+    {
+        if (newOrderClientId is not null)
+            NavigationManager.NavigateTo($"/orders/{newOrderClientId}");
+    }
+
+    private static string StatusLabel(OrderStatus status) => status switch
+    {
+        OrderStatus.Draft => "Borrador",
+        OrderStatus.Confirmed => "Confirmado",
+        OrderStatus.InProgress => "En curso",
+        OrderStatus.Completed => "Completado",
+        OrderStatus.Cancelled => "Cancelado",
+        _ => status.ToString()
+    };
+
+    private static string StatusBadgeClass(OrderStatus status) => status switch
+    {
+        OrderStatus.Draft => "bg-secondary-subtle text-secondary",
+        OrderStatus.Confirmed => "bg-info-subtle text-info",
+        OrderStatus.InProgress => "bg-primary-subtle text-primary",
+        OrderStatus.Completed => "bg-success-subtle text-success",
+        OrderStatus.Cancelled => "bg-danger-subtle text-danger",
+        _ => "bg-secondary-subtle text-secondary"
+    };
+}

@@ -1,0 +1,23 @@
+@page "/admin/dashboard"
+@using MemByte.Infrastructure.Identity
+@attribute [Authorize(Roles = ApplicationRoleNames.Admin)]
+
+<PageTitle>Panel de administración - MemByte-IM</PageTitle>
+
+<h1 class="h4 mb-3">Panel de administración</h1>
+<p class="text-muted">Gestión global de empleados, usuarios, compras, proyectos y facturación.</p>
+
+<div class="row g-3 mt-1">
+    <div class="col-sm-6 col-md-4">
+        <a href="/employees" class="card text-decoration-none h-100 border-0 shadow-sm">
+            <div class="card-body d-flex align-items-center gap-3">
+                <span class="bi bi-people-fill fs-2 text-primary" aria-hidden="true"></span>
+                <div>
+                    <div class="fw-semibold">Empleados</div>
+                    <div class="text-muted small">Ver, crear y editar fichas de empleados</div>
+                </div>
+            </div>
+        </a>
+    </div>
+</div>
+

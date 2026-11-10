@@ -1,0 +1,16 @@
+services:
+  membyte-postgres:
+    image: postgres:16
+    container_name: membyte-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: membyte_im
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - membyte-postgres-data:/var/lib/postgresql/data
+
+volumes:
+  membyte-postgres-data:

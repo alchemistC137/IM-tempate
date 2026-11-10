@@ -1,0 +1,208 @@
+@page "/clients/{Id:guid}"
+@rendermode InteractiveServer
+@using System.ComponentModel.DataAnnotations
+@using MemByte.Application.Clients
+@using MemByte.Infrastructure.Identity
+@attribute [Authorize(Roles = ApplicationRoleNames.Admin)]
+@inject IClientService ClientService
+@inject NavigationManager NavigationManager
+
+<PageTitle>@(client is null ? "Cliente" : client.Name) - MemByte-IM</PageTitle>
+
+<div class="mb-3">
+    <a href="/clients" class="btn btn-outline-secondary btn-sm">
+        <span class="bi bi-arrow-left me-1" aria-hidden="true"></span> Volver al listado
+    </a>
+</div>
+
+@if (loading)
+{
+    <div class="d-flex justify-content-center py-5">
+        <span class="spinner-border" role="status" aria-hidden="true"></span>
+    </div>
+}
+else if (client is null)
+{
+    <div class="alert alert-warning">
+        <span class="bi bi-exclamation-triangle me-2" aria-hidden="true"></span>
+        Cliente no encontrado.
+    </div>
+}
+else
+{
+    <div class="card shadow-sm" style="max-width:600px">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <h1 class="h5 mb-0">
+                <span class="bi bi-building me-2" aria-hidden="true"></span>@client.Name
+            </h1>
+            @if (!editing)
+            {
+                <button class="btn btn-outline-primary btn-sm" @onclick="StartEdit">
+                    <span class="bi bi-pencil me-1" aria-hidden="true"></span> Editar
+                </button>
+            }
+        </div>
+
+        <div class="card-body">
+            @if (saved)
+            {
+                <div class="alert alert-success d-flex align-items-center gap-2 py-2">
+                    <span class="bi bi-check-circle-fill" aria-hidden="true"></span>
+                    Datos guardados correctamente.
+                </div>
+            }
+
+            @if (serverErrors.Count > 0)
+            {
+                <div class="alert alert-danger py-2">
+                    <ul class="mb-0">
+                        @foreach (var error in serverErrors)
+                        {
+                            <li>@error</li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            @if (!editing)
+            {
+                <!-- Vista de sólo lectura -->
+                <dl class="row mb-0">
+                    <dt class="col-sm-4 text-muted small">Nombre</dt>
+                    <dd class="col-sm-8">@client.Name</dd>
+
+                    <dt class="col-sm-4 text-muted small">Fecha de alta</dt>
+                    <dd class="col-sm-8">@client.CreatedAt.LocalDateTime.ToString("dd/MM/yyyy")</dd>
+
+                    <dt class="col-sm-4 text-muted small">Estado</dt>
+                    <dd class="col-sm-8">
+                        @if (client.IsActive)
+                        {
+                            <span class="badge bg-success-subtle text-success">Activo</span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-secondary-subtle text-secondary">Inactivo</span>
+                        }
+                    </dd>
+                </dl>
+
+                <hr class="my-3" />
+                <p class="text-muted small mb-0">
+                    <span class="bi bi-info-circle me-1" aria-hidden="true"></span>
+                    Los usuarios de este cliente se gestionarán próximamente desde el módulo
+                    de Gestión de Usuarios.
+                </p>
+            }
+            else
+            {
+                <!-- Formulario de edición -->
+                <EditForm Model="Input" OnValidSubmit="SaveClient">
+                    <DataAnnotationsValidator />
+
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <label class="form-label">Nombre <span class="text-danger">*</span></label>
+                            <InputText class="form-control" @bind-Value="Input.Name" />
+                            <ValidationMessage For="() => Input.Name" class="text-danger small" />
+                        </div>
+                        <div class="col-12">
+                            <div class="form-check form-switch">
+                                <InputCheckbox class="form-check-input" @bind-Value="Input.IsActive" id="isActiveEdit" />
+                                <label class="form-check-label" for="isActiveEdit">Cliente activo</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <hr class="my-4" />
+
+                    <div class="d-flex gap-2 justify-content-end">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="CancelEdit">
+                            Cancelar
+                        </button>
+                        <button type="submit" class="btn btn-primary btn-sm" disabled="@saving">
+                            @if (saving)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                            }
+                            Guardar cambios
+                        </button>
+                    </div>
+                </EditForm>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private ClientDto? client;
+    private ClientFormModel Input { get; set; } = new();
+    private bool loading = true;
+    private bool editing;
+    private bool saving;
+    private bool saved;
+    private List<string> serverErrors = [];
+
+    protected override async Task OnParametersSetAsync()
+    {
+        loading = true;
+        client = await ClientService.GetByIdAsync(Id);
+        if (client is not null)
+            Input = MapToForm(client);
+        loading = false;
+    }
+
+    private void StartEdit()
+    {
+        saved = false;
+        serverErrors = [];
+        editing = true;
+    }
+
+    private void CancelEdit()
+    {
+        if (client is not null)
+            Input = MapToForm(client);
+        editing = false;
+        saved = false;
+        serverErrors = [];
+    }
+
+    private async Task SaveClient()
+    {
+        saving = true;
+        serverErrors = [];
+
+        var result = await ClientService.UpdateAsync(Id, new UpdateClientRequest(Input.Name, Input.IsActive));
+
+        saving = false;
+
+        if (result.Succeeded)
+        {
+            client = result.Client;
+            saved = true;
+            editing = false;
+        }
+        else
+        {
+            serverErrors = result.Errors.ToList();
+        }
+    }
+
+    private static ClientFormModel MapToForm(ClientDto c) => new()
+    {
+        Name = c.Name,
+        IsActive = c.IsActive
+    };
+
+    private sealed class ClientFormModel
+    {
+        [Required(ErrorMessage = "El nombre es obligatorio.")]
+        [MaxLength(200)]
+        public string Name { get; set; } = string.Empty;
+
+        public bool IsActive { get; set; } = true;
+    }
+}

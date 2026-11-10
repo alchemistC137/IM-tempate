@@ -1,0 +1,206 @@
+@page "/users/new"
+@rendermode InteractiveServer
+@using System.ComponentModel.DataAnnotations
+@using MemByte.Application.Clients
+@using MemByte.Application.Employees
+@using MemByte.Application.Users
+@using MemByte.Infrastructure.Identity
+@attribute [Authorize(Roles = ApplicationRoleNames.Admin)]
+@inject IUserService UserService
+@inject IEmployeeService EmployeeService
+@inject IClientService ClientService
+@inject NavigationManager NavigationManager
+
+<PageTitle>Nuevo usuario - MemByte-IM</PageTitle>
+
+<div class="mb-3">
+    <a href="/users" class="btn btn-outline-secondary btn-sm">
+        <span class="bi bi-arrow-left me-1" aria-hidden="true"></span> Volver al listado
+    </a>
+</div>
+
+<div class="card shadow-sm" style="max-width:700px">
+    <div class="card-header bg-white">
+        <h1 class="h5 mb-0">
+            <span class="bi bi-person-plus me-2" aria-hidden="true"></span>Nuevo usuario
+        </h1>
+    </div>
+    <div class="card-body">
+        @if (activationLink is not null)
+        {
+            <div class="alert alert-success">
+                <p class="mb-2">
+                    <span class="bi bi-check-circle-fill me-1" aria-hidden="true"></span>
+                    Usuario creado correctamente. Todavía no hay envío real de email configurado: comparte este
+                    enlace de un solo uso con el usuario para que active su cuenta y fije su contraseña
+                    (caduca en 24 horas).
+                </p>
+                <div class="input-group input-group-sm">
+                    <input class="form-control" readonly value="@activationLink" />
+                    <a class="btn btn-outline-success" href="/users">Ver listado</a>
+                </div>
+            </div>
+        }
+        else
+        {
+            @if (serverErrors.Count > 0)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var error in serverErrors)
+                        {
+                            <li>@error</li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            <EditForm Model="Input" OnValidSubmit="SaveUserAsync">
+                <DataAnnotationsValidator />
+
+                <div class="row g-3">
+                    <div class="col-12">
+                        <label class="form-label">Email <span class="text-danger">*</span></label>
+                        <InputText class="form-control" @bind-Value="Input.Email" type="email" placeholder="usuario@empresa.com" />
+                        <ValidationMessage For="() => Input.Email" class="text-danger small" />
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Nombre a mostrar <span class="text-danger">*</span></label>
+                        <InputText class="form-control" @bind-Value="Input.DisplayName" />
+                        <ValidationMessage For="() => Input.DisplayName" class="text-danger small" />
+                    </div>
+                    <div class="col-sm-6">
+                        <label class="form-label">Empleado vinculado</label>
+                        <InputSelect class="form-select" @bind-Value="Input.EmployeeId">
+                            <option value="">— Ninguno —</option>
+                            @foreach (var employee in employees)
+                            {
+                                <option value="@employee.Id">@employee.FullName</option>
+                            }
+                        </InputSelect>
+                    </div>
+                    <div class="col-sm-6">
+                        <label class="form-label">Cliente vinculado</label>
+                        <InputSelect class="form-select" @bind-Value="Input.ClientId">
+                            <option value="">— Ninguno —</option>
+                            @foreach (var client in clients)
+                            {
+                                <option value="@client.Id">@client.Name</option>
+                            }
+                        </InputSelect>
+                    </div>
+                    <div class="col-12">
+                        @if (string.IsNullOrEmpty(Input.EmployeeId) && string.IsNullOrEmpty(Input.ClientId))
+                        {
+                            <div class="alert alert-warning py-2 small mb-0">
+                                <span class="bi bi-exclamation-triangle me-1" aria-hidden="true"></span>
+                                Este usuario no quedará vinculado a ningún empleado ni cliente (p. ej. una cuenta de
+                                servicio). Revisa que sea intencionado.
+                            </div>
+                        }
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label d-block">Roles</label>
+                        @foreach (var role in ApplicationRoleNames.All)
+                        {
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="checkbox" id="@("role-" + role)"
+                                       checked="@Input.Roles.Contains(role)"
+                                       @onchange="e => ToggleRole(role, (bool)e.Value!)" />
+                                <label class="form-check-label" for="@("role-" + role)">@RoleDisplayName(role)</label>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <hr class="my-4" />
+
+                <div class="d-flex gap-2 justify-content-end">
+                    <a href="/users" class="btn btn-outline-secondary btn-sm">Cancelar</a>
+                    <button type="submit" class="btn btn-primary btn-sm" disabled="@saving">
+                        @if (saving)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                        }
+                        Crear usuario
+                    </button>
+                </div>
+            </EditForm>
+        }
+    </div>
+</div>
+
+@code {
+    private UserFormModel Input { get; set; } = new();
+    private List<EmployeeDto> employees = [];
+    private List<ClientDto> clients = [];
+
+    private bool saving;
+    private string? activationLink;
+    private List<string> serverErrors = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        employees = (await EmployeeService.GetAllAsync()).ToList();
+        clients = (await ClientService.GetAllAsync()).ToList();
+    }
+
+    private void ToggleRole(string role, bool isChecked)
+    {
+        if (isChecked && !Input.Roles.Contains(role))
+            Input.Roles.Add(role);
+        else if (!isChecked)
+            Input.Roles.Remove(role);
+    }
+
+    private async Task SaveUserAsync()
+    {
+        saving = true;
+        serverErrors = [];
+
+        var result = await UserService.CreateAsync(new CreateUserRequest(
+            Input.Email,
+            Input.DisplayName,
+            string.IsNullOrEmpty(Input.EmployeeId) ? null : Guid.Parse(Input.EmployeeId),
+            string.IsNullOrEmpty(Input.ClientId) ? null : Guid.Parse(Input.ClientId),
+            Input.Roles));
+
+        saving = false;
+
+        if (result.Succeeded && result.ActionUrlPath is not null)
+        {
+            activationLink = $"{NavigationManager.BaseUri.TrimEnd('/')}{result.ActionUrlPath}";
+        }
+        else
+        {
+            serverErrors = result.Errors.ToList();
+        }
+    }
+
+    private static string RoleDisplayName(string role) => role switch
+    {
+        "Admin" => "Admin",
+        "AreaManager" => "Jefe de área",
+        "PurchasingAgent" => "Agente de compras",
+        "Employee" => "Empleado",
+        _ => role
+    };
+
+    private sealed class UserFormModel
+    {
+        [Required(ErrorMessage = "El email es obligatorio.")]
+        [EmailAddress(ErrorMessage = "Introduce un email válido.")]
+        [MaxLength(256)]
+        public string Email { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "El nombre a mostrar es obligatorio.")]
+        [MaxLength(200)]
+        public string DisplayName { get; set; } = string.Empty;
+
+        public string EmployeeId { get; set; } = string.Empty;
+
+        public string ClientId { get; set; } = string.Empty;
+
+        public List<string> Roles { get; set; } = [];
+    }
+}

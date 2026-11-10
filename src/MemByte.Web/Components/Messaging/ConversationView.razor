@@ -1,0 +1,188 @@
+@using MemByte.Application.Messaging
+@using MemByte.Domain.Messaging
+
+@* Visor del hilo con redactor integrado. El componente no decide permisos:
+   se limita a respetar CanReply, que el servicio calcula en servidor. *@
+
+<div class="card shadow-sm h-100 d-flex flex-column">
+    @if (Conversation is null)
+    {
+        <div class="d-flex flex-column justify-content-center align-items-center text-muted flex-grow-1 py-5">
+            <span class="bi bi-chat-dots fs-1 mb-2" aria-hidden="true"></span>
+            Selecciona una conversación para ver los mensajes.
+        </div>
+    }
+    else
+    {
+        <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center gap-2">
+            <div class="text-truncate">
+                <div class="fw-semibold text-truncate">@Conversation.Subject</div>
+                <div class="small text-muted">
+                    Creada el @Conversation.CreatedAt.LocalDateTime.ToString("dd/MM/yyyy HH:mm")
+                </div>
+            </div>
+            <div class="d-flex gap-1 flex-shrink-0">
+                <button type="button" class="btn btn-outline-secondary btn-sm"
+                        title="@(Conversation.IsPinned ? "Desfijar" : "Fijar")"
+                        @onclick="() => OnTogglePinned.InvokeAsync(!Conversation.IsPinned)">
+                    <span class="bi @(Conversation.IsPinned ? "bi-pin-angle-fill" : "bi-pin-angle")" aria-hidden="true"></span>
+                </button>
+                <button type="button" class="btn btn-outline-secondary btn-sm"
+                        title="@(Conversation.IsMuted ? "Activar avisos" : "Silenciar")"
+                        @onclick="() => OnToggleMuted.InvokeAsync(!Conversation.IsMuted)">
+                    <span class="bi @(Conversation.IsMuted ? "bi-bell-slash" : "bi-bell")" aria-hidden="true"></span>
+                </button>
+                @if (Conversation.CanReply)
+                {
+                    <select class="form-select form-select-sm" style="max-width:150px"
+                            value="@Conversation.Status"
+                            @onchange="OnStatusChanged">
+                        <option value="@ConversationStatus.Open">Abierta</option>
+                        <option value="@ConversationStatus.Pending">Pendiente</option>
+                        <option value="@ConversationStatus.Resolved">Resuelta</option>
+                        <option value="@ConversationStatus.Closed">Cerrada</option>
+                    </select>
+                }
+            </div>
+        </div>
+
+        <div class="card-body overflow-auto flex-grow-1" style="max-height:50vh">
+            @foreach (var message in Conversation.Messages)
+            {
+                @if (message.IsSystemMessage)
+                {
+                    <div class="text-center small text-muted my-2">@message.Body</div>
+                }
+                else
+                {
+                    <div class="d-flex mb-3 @(message.IsMine ? "justify-content-end" : "justify-content-start")">
+                        <div class="p-2 rounded-3 @(message.IsMine ? "bg-primary text-white" : "bg-light")" style="max-width:75%">
+                            <div class="small fw-semibold @(message.IsMine ? "text-white-50" : "text-muted")">
+                                @message.SenderDisplayName
+                            </div>
+                            <div class="text-break">@message.Body</div>
+
+                            @if (message.Attachments.Count > 0)
+                            {
+                                <div class="mt-2 d-flex flex-column gap-1">
+                                    @foreach (var attachment in message.Attachments)
+                                    {
+                                        <a class="small @(message.IsMine ? "link-light" : "link-primary")"
+                                           href="@($"/messaging/attachments/{attachment.Id}")"
+                                           target="_blank" rel="noopener">
+                                            <span class="bi bi-paperclip me-1" aria-hidden="true"></span>
+                                            @attachment.FileName (@FormatSize(attachment.SizeInBytes))
+                                        </a>
+                                    }
+                                </div>
+                            }
+
+                            <div class="small text-end @(message.IsMine ? "text-white-50" : "text-muted")">
+                                @message.CreatedAt.LocalDateTime.ToString("dd/MM HH:mm")
+                                @if (message.EditedAt is not null)
+                                {
+                                    <span> · editado</span>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+            }
+        </div>
+
+        <div class="card-footer bg-white">
+            @if (Conversation.CanReply)
+            {
+                <div class="d-flex flex-column gap-2">
+                    <textarea class="form-control" rows="2" placeholder="Escribe tu respuesta…"
+                              @bind="draft" @bind:event="oninput" disabled="@sending"></textarea>
+
+                    <div class="d-flex justify-content-between align-items-center gap-2">
+                        <InputFile OnChange="OnFilesSelected" multiple class="form-control form-control-sm" style="max-width:320px" />
+                        <button type="button" class="btn btn-primary btn-sm"
+                                disabled="@(sending || string.IsNullOrWhiteSpace(draft))"
+                                @onclick="SendAsync">
+                            <span class="bi bi-send me-1" aria-hidden="true"></span> Enviar
+                        </button>
+                    </div>
+
+                    @if (selectedFiles.Count > 0)
+                    {
+                        <div class="small text-muted">
+                            @selectedFiles.Count archivo(s) seleccionado(s).
+                        </div>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="small text-muted text-center">
+                    <span class="bi bi-lock me-1" aria-hidden="true"></span>
+                    No tienes permiso para responder en esta conversación.
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private string draft = string.Empty;
+    private bool sending;
+    private List<IBrowserFile> selectedFiles = [];
+
+    [Parameter]
+    public ConversationDetailDto? Conversation { get; set; }
+
+    [Parameter]
+    public EventCallback<(string Body, IReadOnlyList<IBrowserFile> Files)> OnSend { get; set; }
+
+    [Parameter]
+    public EventCallback<bool> OnTogglePinned { get; set; }
+
+    [Parameter]
+    public EventCallback<bool> OnToggleMuted { get; set; }
+
+    [Parameter]
+    public EventCallback<ConversationStatus> OnStatusChange { get; set; }
+
+    private void OnFilesSelected(InputFileChangeEventArgs args)
+    {
+        selectedFiles = args.GetMultipleFiles(maximumFileCount: 5).ToList();
+    }
+
+    private async Task SendAsync()
+    {
+        if (string.IsNullOrWhiteSpace(draft))
+            return;
+
+        sending = true;
+        try
+        {
+            await OnSend.InvokeAsync((draft, selectedFiles));
+            draft = string.Empty;
+            selectedFiles = [];
+        }
+        finally
+        {
+            sending = false;
+        }
+    }
+
+    private Task OnStatusChanged(ChangeEventArgs args)
+    {
+        return Enum.TryParse<ConversationStatus>(args.Value?.ToString(), out var status)
+            ? OnStatusChange.InvokeAsync(status)
+            : Task.CompletedTask;
+    }
+
+    private static string FormatSize(long sizeInBytes)
+    {
+        if (sizeInBytes < 1024)
+            return $"{sizeInBytes} B";
+
+        if (sizeInBytes < 1024 * 1024)
+            return $"{sizeInBytes / 1024d:0.#} KB";
+
+        return $"{sizeInBytes / (1024d * 1024d):0.#} MB";
+    }
+}

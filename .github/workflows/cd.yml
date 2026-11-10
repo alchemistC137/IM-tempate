@@ -1,0 +1,108 @@
+name: CD — Deploy container to Azure
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: azure-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    env:
+      AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      IMAGE_TAG: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Require current master and successful CI
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          current_sha=$(git ls-remote origin refs/heads/master | cut -f1)
+          if [[ "$current_sha" != "$IMAGE_TAG" ]]; then
+            echo "::error::This revision has been superseded on master; refusing to deploy an older commit."
+            exit 1
+          fi
+          ci_runs=$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
+            -f branch=master -f event=push -f head_sha="$IMAGE_TAG" -f per_page=1)
+          if ! jq --exit-status --arg sha "$IMAGE_TAG" --arg repo "$GITHUB_REPOSITORY" \
+            '.workflow_runs[0] |
+             .head_sha == $sha and .head_branch == "master" and .event == "push" and
+             .head_repository.full_name == $repo and
+             .status == "completed" and .conclusion == "success"' <<< "$ci_runs" > /dev/null; then
+            echo "::error::The latest push CI run for this master revision must have completed successfully. Wait for CI or fix it before retrying."
+            exit 1
+          fi
+
+      - name: Login to Azure with OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Provision private registry
+        id: registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${AZURE_RESOURCE_GROUP:?Set the production environment variable AZURE_RESOURCE_GROUP}"
+          az deployment group create --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name container-registry --template-file infra/registry.bicep \
+            --output none
+          az deployment group show --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name container-registry --query properties.outputs --output json > "$RUNNER_TEMP/registry.json"
+          echo "name=$(jq -r '.registryName.value' "$RUNNER_TEMP/registry.json")" >> "$GITHUB_OUTPUT"
+          echo "server=$(jq -r '.loginServer.value' "$RUNNER_TEMP/registry.json")" >> "$GITHUB_OUTPUT"
+
+      - name: Login to ACR
+        env:
+          REGISTRY_NAME: ${{ steps.registry.outputs.name }}
+        run: az acr login --name "$REGISTRY_NAME"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push commit image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.registry.outputs.server }}/membyte-im:${{ env.IMAGE_TAG }}
+
+      - name: Deploy infrastructure and image
+        shell: bash
+        env:
+          REGISTRY_NAME: ${{ steps.registry.outputs.name }}
+        run: |
+          set -euo pipefail
+          az deployment group create --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "app-${IMAGE_TAG:0:12}" --template-file infra/main.bicep \
+            --parameters infra/production.bicepparam imageTag="$IMAGE_TAG" \
+              registryName="$REGISTRY_NAME" imageRepository=membyte-im \
+            --output none
+          url=$(az deployment group show --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "app-${IMAGE_TAG:0:12}" --query properties.outputs.appUrl.value --output tsv)
+          curl --fail --silent --show-error --retry 30 --retry-delay 10 \
+            --retry-all-errors --max-time 30 "$url/health"
+
+      - name: Logout from ACR
+        if: always() && steps.registry.outcome == 'success'
+        env:
+          REGISTRY_SERVER: ${{ steps.registry.outputs.server }}
+        run: docker logout "$REGISTRY_SERVER"

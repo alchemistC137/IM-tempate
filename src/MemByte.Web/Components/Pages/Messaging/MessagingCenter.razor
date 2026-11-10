@@ -1,0 +1,277 @@
+@page "/messaging"
+@rendermode InteractiveServer
+@using MemByte.Application.Messaging
+@using MemByte.Domain.Messaging
+@using MemByte.Web.Components.Messaging
+@using MemByte.Web.Messaging
+@using Microsoft.AspNetCore.SignalR.Client
+@using Microsoft.Extensions.Options
+@attribute [Authorize(Policy = MessagingPolicies.AccessMessaging)]
+@inject IMessagingService MessagingService
+@inject NavigationManager NavigationManager
+@inject IOptions<MessagingOptions> MessagingOptionsAccessor
+@implements IAsyncDisposable
+
+<PageTitle>Mensajería - MemByte-IM</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h1 class="h4 mb-0">Mensajería</h1>
+        <p class="text-muted small mb-0">Conversaciones internas de la intranet.</p>
+    </div>
+    <button class="btn btn-primary btn-sm" @onclick="() => showNewConversation = true">
+        <span class="bi bi-plus-lg me-1" aria-hidden="true"></span> Nueva conversación
+    </button>
+</div>
+
+@if (errors.Count > 0)
+{
+    <div class="alert alert-danger py-2">
+        @foreach (var error in errors)
+        {
+            <div>@error</div>
+        }
+    </div>
+}
+
+@if (showNewConversation)
+{
+    <div class="card shadow-sm mb-3">
+        <div class="card-body">
+            <div class="row g-2">
+                <div class="col-md-8">
+                    <input class="form-control form-control-sm" placeholder="Asunto" @bind="newSubject" />
+                </div>
+                <div class="col-md-4">
+                    <select class="form-select form-select-sm" @bind="newPriority">
+                        <option value="@ConversationPriority.Low">Prioridad baja</option>
+                        <option value="@ConversationPriority.Normal">Prioridad normal</option>
+                        <option value="@ConversationPriority.High">Prioridad alta</option>
+                        <option value="@ConversationPriority.Urgent">Urgente</option>
+                    </select>
+                </div>
+                <div class="col-12">
+                    <textarea class="form-control form-control-sm" rows="3" placeholder="Escribe tu mensaje…" @bind="newBody"></textarea>
+                </div>
+            </div>
+            <div class="d-flex justify-content-end gap-2 mt-2">
+                <button class="btn btn-outline-secondary btn-sm" @onclick="CancelNewConversation">Cancelar</button>
+                <button class="btn btn-primary btn-sm"
+                        disabled="@(string.IsNullOrWhiteSpace(newSubject) || string.IsNullOrWhiteSpace(newBody))"
+                        @onclick="StartConversationAsync">
+                    Crear
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<div class="row g-3">
+    <div class="col-lg-4">
+        <ConversationList Conversations="conversations"
+                          SelectedConversationId="selectedConversationId"
+                          StatusFilter="statusFilter"
+                          StatusFilterChanged="OnStatusFilterChangedAsync"
+                          OnConversationSelected="SelectConversationAsync" />
+    </div>
+    <div class="col-lg-8">
+        <ConversationView Conversation="selectedConversation"
+                          OnSend="SendMessageAsync"
+                          OnTogglePinned="TogglePinnedAsync"
+                          OnToggleMuted="ToggleMutedAsync"
+                          OnStatusChange="ChangeStatusAsync" />
+    </div>
+</div>
+
+@code {
+    private IReadOnlyList<ConversationSummaryDto> conversations = [];
+    private ConversationDetailDto? selectedConversation;
+    private Guid? selectedConversationId;
+    private ConversationStatus? statusFilter;
+    private List<string> errors = [];
+
+    private bool showNewConversation;
+    private string newSubject = string.Empty;
+    private string newBody = string.Empty;
+    private ConversationPriority newPriority = ConversationPriority.Normal;
+
+    private HubConnection? hubConnection;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadInboxAsync();
+        await ConnectToHubAsync();
+    }
+
+    /// <summary>
+    /// Se conecta al hub con las cookies del circuito actual. El servidor
+    /// resuelve el usuario desde la autenticación: el cliente no envía ningún
+    /// identificador propio.
+    /// </summary>
+    private async Task ConnectToHubAsync()
+    {
+        hubConnection = new HubConnectionBuilder()
+            .WithUrl(NavigationManager.ToAbsoluteUri(MessagingHub.HubPath))
+            .WithAutomaticReconnect()
+            .Build();
+
+        hubConnection.On<ConversationNotification>(
+            MessagingHub.ConversationUpdatedMethod,
+            async notification =>
+            {
+                await LoadInboxAsync();
+
+                if (selectedConversationId == notification.ConversationId)
+                    await LoadConversationAsync(notification.ConversationId);
+
+                await InvokeAsync(StateHasChanged);
+            });
+
+        try
+        {
+            await hubConnection.StartAsync();
+        }
+        catch (Exception)
+        {
+            // Si el canal en tiempo real no está disponible, la bandeja sigue
+            // funcionando con las recargas manuales.
+        }
+    }
+
+    private async Task LoadInboxAsync()
+    {
+        conversations = await MessagingService.GetInboxAsync(statusFilter);
+    }
+
+    private async Task OnStatusFilterChangedAsync(ConversationStatus? status)
+    {
+        statusFilter = status;
+        await LoadInboxAsync();
+    }
+
+    private async Task SelectConversationAsync(Guid conversationId)
+    {
+        selectedConversationId = conversationId;
+        await LoadConversationAsync(conversationId);
+
+        if (selectedConversation is not null)
+        {
+            await MessagingService.MarkAsReadAsync(conversationId);
+            await LoadInboxAsync();
+        }
+    }
+
+    private async Task LoadConversationAsync(Guid conversationId)
+    {
+        var result = await MessagingService.GetConversationAsync(conversationId);
+        if (result.Succeeded)
+        {
+            selectedConversation = result.Value;
+            errors = [];
+        }
+        else
+        {
+            selectedConversation = null;
+            selectedConversationId = null;
+            errors = result.Errors.ToList();
+        }
+    }
+
+    private async Task StartConversationAsync()
+    {
+        var result = await MessagingService.StartConversationAsync(
+            new StartConversationRequest(newSubject, newBody, newPriority));
+
+        if (!result.Succeeded)
+        {
+            errors = result.Errors.ToList();
+            return;
+        }
+
+        errors = [];
+        CancelNewConversation();
+
+        selectedConversation = result.Value;
+        selectedConversationId = result.Value?.Id;
+        await LoadInboxAsync();
+    }
+
+    private void CancelNewConversation()
+    {
+        showNewConversation = false;
+        newSubject = string.Empty;
+        newBody = string.Empty;
+        newPriority = ConversationPriority.Normal;
+    }
+
+    private async Task SendMessageAsync((string Body, IReadOnlyList<IBrowserFile> Files) payload)
+    {
+        if (selectedConversationId is null)
+            return;
+
+        var options = MessagingOptionsAccessor.Value;
+        var attachments = new List<NewAttachment>();
+        var streams = new List<Stream>();
+
+        try
+        {
+            foreach (var file in payload.Files)
+            {
+                var stream = file.OpenReadStream(options.MaxAttachmentSizeBytes);
+                streams.Add(stream);
+                attachments.Add(new NewAttachment(file.Name, file.ContentType, file.Size, stream));
+            }
+
+            var result = await MessagingService.SendMessageAsync(
+                new SendMessageRequest(selectedConversationId.Value, payload.Body, attachments));
+
+            errors = result.Succeeded ? [] : result.Errors.ToList();
+        }
+        finally
+        {
+            foreach (var stream in streams)
+                await stream.DisposeAsync();
+        }
+
+        await LoadConversationAsync(selectedConversationId.Value);
+        await LoadInboxAsync();
+    }
+
+    private async Task TogglePinnedAsync(bool isPinned)
+    {
+        if (selectedConversationId is null)
+            return;
+
+        await MessagingService.SetPinnedAsync(selectedConversationId.Value, isPinned);
+        await LoadConversationAsync(selectedConversationId.Value);
+        await LoadInboxAsync();
+    }
+
+    private async Task ToggleMutedAsync(bool isMuted)
+    {
+        if (selectedConversationId is null)
+            return;
+
+        await MessagingService.SetMutedAsync(selectedConversationId.Value, isMuted);
+        await LoadConversationAsync(selectedConversationId.Value);
+        await LoadInboxAsync();
+    }
+
+    private async Task ChangeStatusAsync(ConversationStatus status)
+    {
+        if (selectedConversationId is null)
+            return;
+
+        var result = await MessagingService.ChangeStatusAsync(selectedConversationId.Value, status);
+        errors = result.Succeeded ? [] : result.Errors.ToList();
+
+        await LoadConversationAsync(selectedConversationId.Value);
+        await LoadInboxAsync();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (hubConnection is not null)
+            await hubConnection.DisposeAsync();
+    }
+}

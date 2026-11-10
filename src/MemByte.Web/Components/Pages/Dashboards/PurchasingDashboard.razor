@@ -1,0 +1,9 @@
+@page "/purchasing/dashboard"
+@using MemByte.Infrastructure.Identity
+@attribute [Authorize(Roles = ApplicationRoleNames.PurchasingAgent)]
+
+<PageTitle>Panel de compras - MemByte-IM</PageTitle>
+
+<h1 class="h4 mb-3">Panel de compras</h1>
+<p class="text-muted">Gestión de solicitudes, catálogo y órdenes de compra de toda la organización.</p>
+<p class="text-muted small">Próximamente: bandeja de solicitudes pendientes y reportes de gasto.</p>

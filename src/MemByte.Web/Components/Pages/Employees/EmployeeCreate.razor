@@ -1,0 +1,169 @@
+@page "/employees/new"
+@rendermode InteractiveServer
+@using System.ComponentModel.DataAnnotations
+@using MemByte.Application.Employees
+@using MemByte.Infrastructure.Identity
+@attribute [Authorize(Roles = ApplicationRoleNames.Admin)]
+@inject IEmployeeService EmployeeService
+@inject NavigationManager NavigationManager
+
+<PageTitle>Nuevo empleado - MemByte-IM</PageTitle>
+
+<div class="mb-3">
+    <a href="/employees" class="btn btn-outline-secondary btn-sm">
+        <span class="bi bi-arrow-left me-1" aria-hidden="true"></span> Volver al listado
+    </a>
+</div>
+
+<div class="card shadow-sm" style="max-width:600px">
+    <div class="card-header bg-white">
+        <h1 class="h5 mb-0">
+            <span class="bi bi-person-plus me-2" aria-hidden="true"></span>Nuevo empleado
+        </h1>
+    </div>
+    <div class="card-body">
+        @if (saved)
+        {
+            <div class="alert alert-success d-flex align-items-center gap-2">
+                <span class="bi bi-check-circle-fill" aria-hidden="true"></span>
+                Empleado creado correctamente.
+                <a href="/employees" class="ms-auto btn btn-sm btn-success">Ver listado</a>
+            </div>
+        }
+
+        @if (serverErrors.Count > 0)
+        {
+            <div class="alert alert-danger">
+                <ul class="mb-0">
+                    @foreach (var error in serverErrors)
+                    {
+                        <li>@error</li>
+                    }
+                </ul>
+            </div>
+        }
+
+        <EditForm Model="Input" OnValidSubmit="SaveEmployee">
+            <DataAnnotationsValidator />
+
+            <div class="row g-3">
+                <div class="col-sm-6">
+                    <label class="form-label">Nombre <span class="text-danger">*</span></label>
+                    <InputText class="form-control" @bind-Value="Input.FirstName" placeholder="Nombre" />
+                    <ValidationMessage For="() => Input.FirstName" class="text-danger small" />
+                </div>
+                <div class="col-sm-6">
+                    <label class="form-label">Apellidos <span class="text-danger">*</span></label>
+                    <InputText class="form-control" @bind-Value="Input.LastName" placeholder="Apellidos" />
+                    <ValidationMessage For="() => Input.LastName" class="text-danger small" />
+                </div>
+                <div class="col-12">
+                    <label class="form-label">Email corporativo <span class="text-danger">*</span></label>
+                    <InputText class="form-control" @bind-Value="Input.Email" placeholder="usuario@empresa.com" type="email" />
+                    <ValidationMessage For="() => Input.Email" class="text-danger small" />
+                </div>
+                <div class="col-sm-6">
+                    <label class="form-label">Departamento <span class="text-danger">*</span></label>
+                    <InputText class="form-control" @bind-Value="Input.Department" placeholder="Ej. Desarrollo" />
+                    <ValidationMessage For="() => Input.Department" class="text-danger small" />
+                </div>
+                <div class="col-sm-6">
+                    <label class="form-label">Rol <span class="text-danger">*</span></label>
+                    <InputSelect class="form-select" @bind-Value="Input.Role">
+                        <option value="">— Seleccionar —</option>
+                        <option value="Employee">Empleado</option>
+                        <option value="AreaManager">Jefe de área</option>
+                        <option value="PurchasingAgent">Agente de compras</option>
+                        <option value="Admin">Admin</option>
+                    </InputSelect>
+                    <ValidationMessage For="() => Input.Role" class="text-danger small" />
+                </div>
+                <div class="col-sm-6">
+                    <label class="form-label">Fecha de alta <span class="text-danger">*</span></label>
+                    <InputDate class="form-control" @bind-Value="Input.HireDate" />
+                    <ValidationMessage For="() => Input.HireDate" class="text-danger small" />
+                </div>
+                <div class="col-sm-6 d-flex align-items-end">
+                    <div class="form-check form-switch">
+                        <InputCheckbox class="form-check-input" @bind-Value="Input.IsActive" id="isActive" />
+                        <label class="form-check-label" for="isActive">Empleado activo</label>
+                    </div>
+                </div>
+            </div>
+
+            <hr class="my-4" />
+
+            <div class="d-flex gap-2 justify-content-end">
+                <a href="/employees" class="btn btn-outline-secondary btn-sm">Cancelar</a>
+                <button type="submit" class="btn btn-primary btn-sm" disabled="@saving">
+                    @if (saving)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                    }
+                    Guardar empleado
+                </button>
+            </div>
+        </EditForm>
+    </div>
+</div>
+
+@code {
+    private EmployeeFormModel Input { get; set; } = new();
+    private bool saving;
+    private bool saved;
+    private List<string> serverErrors = [];
+
+    private async Task SaveEmployee()
+    {
+        saving = true;
+        serverErrors = [];
+
+        var result = await EmployeeService.CreateAsync(new CreateEmployeeRequest(
+            Input.FirstName,
+            Input.LastName,
+            Input.Email,
+            Input.Department,
+            Input.Role,
+            Input.HireDate,
+            Input.IsActive));
+
+        saving = false;
+
+        if (result.Succeeded)
+        {
+            saved = true;
+        }
+        else
+        {
+            serverErrors = result.Errors.ToList();
+        }
+    }
+
+    private sealed class EmployeeFormModel
+    {
+        [Required(ErrorMessage = "El nombre es obligatorio.")]
+        [MaxLength(100)]
+        public string FirstName { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Los apellidos son obligatorios.")]
+        [MaxLength(100)]
+        public string LastName { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "El email es obligatorio.")]
+        [EmailAddress(ErrorMessage = "Introduce un email válido.")]
+        [MaxLength(256)]
+        public string Email { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "El departamento es obligatorio.")]
+        [MaxLength(100)]
+        public string Department { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Selecciona un rol.")]
+        public string Role { get; set; } = string.Empty;
+
+        [Required]
+        public DateOnly HireDate { get; set; } = DateOnly.FromDateTime(DateTime.Today);
+
+        public bool IsActive { get; set; } = true;
+    }
+}

@@ -1,0 +1,705 @@
+@page "/catalog/{ClientId:guid}"
+@rendermode InteractiveServer
+@using MemByte.Application.Catalog
+@using MemByte.Application.Clients
+@using MemByte.Infrastructure.Identity
+@attribute [Authorize(Roles = ApplicationRoleNames.Admin)]
+@inject ICatalogService CatalogService
+@inject IClientService ClientService
+@inject NavigationManager NavigationManager
+
+<PageTitle>Catálogo de @(client?.Name ?? "cliente") - MemByte-IM</PageTitle>
+
+<div class="mb-3">
+    <a href="/catalog" class="btn btn-outline-secondary btn-sm">
+        <span class="bi bi-arrow-left me-1" aria-hidden="true"></span> Volver a clientes
+    </a>
+</div>
+
+@if (loading)
+{
+    <div class="d-flex justify-content-center py-5">
+        <span class="spinner-border" role="status" aria-hidden="true"></span>
+    </div>
+}
+else if (client is null)
+{
+    <div class="alert alert-warning">
+        <span class="bi bi-exclamation-triangle me-2" aria-hidden="true"></span>
+        Cliente no encontrado.
+    </div>
+}
+else
+{
+    <div class="mb-3">
+        <h1 class="h4 mb-0">
+            <span class="bi bi-shop me-2" aria-hidden="true"></span>Catálogo de @client.Name
+        </h1>
+        <p class="text-muted small mb-0">
+            Vista genérica de plantilla: cada cliente adaptará los atributos de sus
+            propios productos y servicios a su naturaleza de negocio (ver
+            <code>src/MemByte.Domain/Catalog/README.md</code>).
+        </p>
+    </div>
+
+    @if (feedback is not null)
+    {
+        <div class="alert @(feedbackIsError ? "alert-danger" : "alert-success") py-2">@feedback</div>
+    }
+
+    <ul class="nav nav-tabs mb-3">
+        <li class="nav-item">
+            <button class="nav-link @(activeTab == Tab.Categories ? "active" : "")" @onclick='() => activeTab = Tab.Categories'>
+                <span class="bi bi-diagram-3 me-1" aria-hidden="true"></span> Categorías
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(activeTab == Tab.Products ? "active" : "")" @onclick='() => activeTab = Tab.Products'>
+                <span class="bi bi-box-seam me-1" aria-hidden="true"></span> Productos
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(activeTab == Tab.Services ? "active" : "")" @onclick='() => activeTab = Tab.Services'>
+                <span class="bi bi-tools me-1" aria-hidden="true"></span> Servicios
+            </button>
+        </li>
+    </ul>
+
+    @if (activeTab == Tab.Categories)
+    {
+        <div class="row g-3">
+            <div class="col-lg-5">
+                <div class="card shadow-sm">
+                    <div class="card-header bg-white">
+                        <span class="bi bi-plus-circle me-1" aria-hidden="true"></span>
+                        @(editingCategoryId is null ? "Nueva categoría" : "Editar categoría")
+                    </div>
+                    <div class="card-body">
+                        <EditForm Model="categoryForm" OnValidSubmit="SaveCategory">
+                            <DataAnnotationsValidator />
+                            <div class="mb-2">
+                                <label class="form-label">Nombre <span class="text-danger">*</span></label>
+                                <InputText class="form-control form-control-sm" @bind-Value="categoryForm.Name" />
+                                <ValidationMessage For="() => categoryForm.Name" class="text-danger small" />
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label">Categoría padre</label>
+                                <select class="form-select form-select-sm" @bind="categoryForm.ParentCategoryId">
+                                    <option value="">(sin categoría padre)</option>
+                                    @foreach (var c in categories.Where(c => c.Id != editingCategoryId))
+                                    {
+                                        <option value="@c.Id">@c.Name</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="mb-3 form-check form-switch">
+                                <InputCheckbox class="form-check-input" @bind-Value="categoryForm.IsActive" id="categoryActive" />
+                                <label class="form-check-label" for="categoryActive">Activa</label>
+                            </div>
+                            <div class="d-flex gap-2">
+                                <button type="submit" class="btn btn-primary btn-sm" disabled="@savingCategory">
+                                    @(editingCategoryId is null ? "Añadir" : "Guardar cambios")
+                                </button>
+                                @if (editingCategoryId is not null)
+                                {
+                                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="CancelCategoryEdit">Cancelar</button>
+                                }
+                            </div>
+                        </EditForm>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-7">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Nombre</th>
+                                <th>Padre</th>
+                                <th>Estado</th>
+                                <th class="text-end">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (!categories.Any())
+                            {
+                                <tr><td colspan="4" class="text-center text-muted py-4">Todavía no hay categorías.</td></tr>
+                            }
+                            else
+                            {
+                                @foreach (var category in categories.OrderBy(c => c.Name))
+                                {
+                                    <tr>
+                                        <td>@category.Name</td>
+                                        <td class="small text-muted">@(categories.FirstOrDefault(c => c.Id == category.ParentCategoryId)?.Name ?? "—")</td>
+                                        <td>
+                                            @if (category.IsActive)
+                                            {
+                                                <span class="badge bg-success-subtle text-success">Activa</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-secondary-subtle text-secondary">Inactiva</span>
+                                            }
+                                        </td>
+                                        <td class="text-end">
+                                            <button class="btn btn-outline-secondary btn-sm me-1" title="Editar" @onclick="() => StartEditCategory(category)">
+                                                <span class="bi bi-pencil" aria-hidden="true"></span>
+                                            </button>
+                                            <button class="btn btn-outline-danger btn-sm" title="Eliminar" @onclick="() => DeleteCategory(category)">
+                                                <span class="bi bi-trash" aria-hidden="true"></span>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+    else if (activeTab == Tab.Products)
+    {
+        <div class="row g-3">
+            <div class="col-lg-5">
+                <div class="card shadow-sm">
+                    <div class="card-header bg-white">
+                        <span class="bi bi-plus-circle me-1" aria-hidden="true"></span>
+                        @(editingProductId is null ? "Nuevo producto" : "Editar producto")
+                    </div>
+                    <div class="card-body">
+                        <EditForm Model="productForm" OnValidSubmit="SaveProduct">
+                            <DataAnnotationsValidator />
+                            <div class="mb-2">
+                                <label class="form-label">Nombre <span class="text-danger">*</span></label>
+                                <InputText class="form-control form-control-sm" @bind-Value="productForm.Name" />
+                                <ValidationMessage For="() => productForm.Name" class="text-danger small" />
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label">Descripción</label>
+                                <InputTextArea class="form-control form-control-sm" rows="2" @bind-Value="productForm.Description" />
+                            </div>
+                            <div class="row g-2 mb-2">
+                                <div class="col-7">
+                                    <label class="form-label">Precio <span class="text-danger">*</span></label>
+                                    <InputNumber class="form-control form-control-sm" @bind-Value="productForm.PriceAmount" />
+                                </div>
+                                <div class="col-5">
+                                    <label class="form-label">Moneda</label>
+                                    <InputText class="form-control form-control-sm" maxlength="3" @bind-Value="productForm.PriceCurrencyCode" />
+                                </div>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label">Categoría</label>
+                                <select class="form-select form-select-sm" @bind="productForm.CategoryId">
+                                    <option value="">(sin categoría)</option>
+                                    @foreach (var c in categories)
+                                    {
+                                        <option value="@c.Id">@c.Name</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label">SKU (opcional)</label>
+                                <InputText class="form-control form-control-sm" @bind-Value="productForm.Sku" />
+                            </div>
+                            <div class="mb-3 form-check form-switch">
+                                <InputCheckbox class="form-check-input" @bind-Value="productForm.IsActive" id="productActive" />
+                                <label class="form-check-label" for="productActive">Activo</label>
+                            </div>
+                            <div class="d-flex gap-2">
+                                <button type="submit" class="btn btn-primary btn-sm" disabled="@savingProduct">
+                                    @(editingProductId is null ? "Añadir" : "Guardar cambios")
+                                </button>
+                                @if (editingProductId is not null)
+                                {
+                                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="CancelProductEdit">Cancelar</button>
+                                }
+                            </div>
+                        </EditForm>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-7">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Nombre</th>
+                                <th>Precio</th>
+                                <th>Categoría</th>
+                                <th>Estado</th>
+                                <th class="text-end">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (!products.Any())
+                            {
+                                <tr><td colspan="5" class="text-center text-muted py-4">Todavía no hay productos.</td></tr>
+                            }
+                            else
+                            {
+                                @foreach (var product in products.OrderBy(p => p.Name))
+                                {
+                                    <tr>
+                                        <td>
+                                            <span class="fw-semibold">@product.Name</span>
+                                            @if (!string.IsNullOrWhiteSpace(product.Sku))
+                                            {
+                                                <span class="text-muted small d-block">SKU: @product.Sku</span>
+                                            }
+                                        </td>
+                                        <td>@product.PriceAmount.ToString("0.00") @product.PriceCurrencyCode</td>
+                                        <td class="small text-muted">@(categories.FirstOrDefault(c => c.Id == product.CategoryId)?.Name ?? "—")</td>
+                                        <td>
+                                            @if (product.IsActive)
+                                            {
+                                                <span class="badge bg-success-subtle text-success">Activo</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-secondary-subtle text-secondary">Inactivo</span>
+                                            }
+                                        </td>
+                                        <td class="text-end">
+                                            <button class="btn btn-outline-secondary btn-sm me-1" title="Editar" @onclick="() => StartEditProduct(product)">
+                                                <span class="bi bi-pencil" aria-hidden="true"></span>
+                                            </button>
+                                            <button class="btn btn-outline-secondary btn-sm me-1" title="Activar/desactivar" @onclick="() => ToggleProductActive(product)">
+                                                <span class="bi bi-power" aria-hidden="true"></span>
+                                            </button>
+                                            <button class="btn btn-outline-danger btn-sm" title="Eliminar" @onclick="() => DeleteProduct(product)">
+                                                <span class="bi bi-trash" aria-hidden="true"></span>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="row g-3">
+            <div class="col-lg-5">
+                <div class="card shadow-sm">
+                    <div class="card-header bg-white">
+                        <span class="bi bi-plus-circle me-1" aria-hidden="true"></span>
+                        @(editingServiceId is null ? "Nuevo servicio" : "Editar servicio")
+                    </div>
+                    <div class="card-body">
+                        <EditForm Model="serviceForm" OnValidSubmit="SaveService">
+                            <DataAnnotationsValidator />
+                            <div class="mb-2">
+                                <label class="form-label">Nombre <span class="text-danger">*</span></label>
+                                <InputText class="form-control form-control-sm" @bind-Value="serviceForm.Name" />
+                                <ValidationMessage For="() => serviceForm.Name" class="text-danger small" />
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label">Descripción</label>
+                                <InputTextArea class="form-control form-control-sm" rows="2" @bind-Value="serviceForm.Description" />
+                            </div>
+                            <div class="row g-2 mb-2">
+                                <div class="col-7">
+                                    <label class="form-label">Precio <span class="text-danger">*</span></label>
+                                    <InputNumber class="form-control form-control-sm" @bind-Value="serviceForm.PriceAmount" />
+                                </div>
+                                <div class="col-5">
+                                    <label class="form-label">Moneda</label>
+                                    <InputText class="form-control form-control-sm" maxlength="3" @bind-Value="serviceForm.PriceCurrencyCode" />
+                                </div>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label">Categoría</label>
+                                <select class="form-select form-select-sm" @bind="serviceForm.CategoryId">
+                                    <option value="">(sin categoría)</option>
+                                    @foreach (var c in categories)
+                                    {
+                                        <option value="@c.Id">@c.Name</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label">Duración (minutos, opcional)</label>
+                                <InputNumber class="form-control form-control-sm" @bind-Value="serviceForm.DurationMinutes" />
+                            </div>
+                            <div class="mb-2 form-check form-switch">
+                                <InputCheckbox class="form-check-input" @bind-Value="serviceForm.IsRecurring" id="serviceRecurring" />
+                                <label class="form-check-label" for="serviceRecurring">Recurrente (suscripción)</label>
+                            </div>
+                            <div class="mb-3 form-check form-switch">
+                                <InputCheckbox class="form-check-input" @bind-Value="serviceForm.IsActive" id="serviceActive" />
+                                <label class="form-check-label" for="serviceActive">Activo</label>
+                            </div>
+                            <div class="d-flex gap-2">
+                                <button type="submit" class="btn btn-primary btn-sm" disabled="@savingService">
+                                    @(editingServiceId is null ? "Añadir" : "Guardar cambios")
+                                </button>
+                                @if (editingServiceId is not null)
+                                {
+                                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="CancelServiceEdit">Cancelar</button>
+                                }
+                            </div>
+                        </EditForm>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-7">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Nombre</th>
+                                <th>Precio</th>
+                                <th>Categoría</th>
+                                <th>Estado</th>
+                                <th class="text-end">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (!services.Any())
+                            {
+                                <tr><td colspan="5" class="text-center text-muted py-4">Todavía no hay servicios.</td></tr>
+                            }
+                            else
+                            {
+                                @foreach (var service in services.OrderBy(s => s.Name))
+                                {
+                                    <tr>
+                                        <td>
+                                            <span class="fw-semibold">@service.Name</span>
+                                            @if (service.IsRecurring)
+                                            {
+                                                <span class="badge bg-info-subtle text-info d-block" style="width:fit-content">Recurrente</span>
+                                            }
+                                        </td>
+                                        <td>@service.PriceAmount.ToString("0.00") @service.PriceCurrencyCode</td>
+                                        <td class="small text-muted">@(categories.FirstOrDefault(c => c.Id == service.CategoryId)?.Name ?? "—")</td>
+                                        <td>
+                                            @if (service.IsActive)
+                                            {
+                                                <span class="badge bg-success-subtle text-success">Activo</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-secondary-subtle text-secondary">Inactivo</span>
+                                            }
+                                        </td>
+                                        <td class="text-end">
+                                            <button class="btn btn-outline-secondary btn-sm me-1" title="Editar" @onclick="() => StartEditService(service)">
+                                                <span class="bi bi-pencil" aria-hidden="true"></span>
+                                            </button>
+                                            <button class="btn btn-outline-secondary btn-sm me-1" title="Activar/desactivar" @onclick="() => ToggleServiceActive(service)">
+                                                <span class="bi bi-power" aria-hidden="true"></span>
+                                            </button>
+                                            <button class="btn btn-outline-danger btn-sm" title="Eliminar" @onclick="() => DeleteService(service)">
+                                                <span class="bi bi-trash" aria-hidden="true"></span>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private enum Tab { Categories, Products, Services }
+
+    [Parameter] public Guid ClientId { get; set; }
+
+    private ClientDto? client;
+    private bool loading = true;
+    private Tab activeTab = Tab.Categories;
+    private string? feedback;
+    private bool feedbackIsError;
+
+    private List<CatalogCategoryDto> categories = [];
+    private List<ProductDto> products = [];
+    private List<ServiceDto> services = [];
+
+    private CategoryFormModel categoryForm = new();
+    private Guid? editingCategoryId;
+    private bool savingCategory;
+
+    private ProductFormModel productForm = new();
+    private Guid? editingProductId;
+    private bool savingProduct;
+
+    private ServiceFormModel serviceForm = new();
+    private Guid? editingServiceId;
+    private bool savingService;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        loading = true;
+        client = await ClientService.GetByIdAsync(ClientId);
+        if (client is not null)
+            await ReloadAllAsync();
+        loading = false;
+    }
+
+    private async Task ReloadAllAsync()
+    {
+        categories = (await CatalogService.GetCategoriesAsync(ClientId)).ToList();
+        products = (await CatalogService.GetProductsAsync(ClientId)).ToList();
+        services = (await CatalogService.GetServicesAsync(ClientId)).ToList();
+    }
+
+    private void ShowFeedback(string message, bool isError)
+    {
+        feedback = message;
+        feedbackIsError = isError;
+    }
+
+    // ---------------------------------------------------------------
+    // Categorías.
+    // ---------------------------------------------------------------
+
+    private void StartEditCategory(CatalogCategoryDto category)
+    {
+        editingCategoryId = category.Id;
+        categoryForm = new CategoryFormModel
+        {
+            Name = category.Name,
+            ParentCategoryId = category.ParentCategoryId?.ToString() ?? string.Empty,
+            IsActive = category.IsActive
+        };
+    }
+
+    private void CancelCategoryEdit()
+    {
+        editingCategoryId = null;
+        categoryForm = new CategoryFormModel();
+    }
+
+    private async Task SaveCategory()
+    {
+        savingCategory = true;
+        var parentId = Guid.TryParse(categoryForm.ParentCategoryId, out var parsed) ? parsed : (Guid?)null;
+
+        var result = editingCategoryId is null
+            ? await CatalogService.CreateCategoryAsync(ClientId, new CreateCatalogCategoryRequest(categoryForm.Name, parentId, categoryForm.IsActive))
+            : await CatalogService.UpdateCategoryAsync(ClientId, editingCategoryId.Value, new UpdateCatalogCategoryRequest(categoryForm.Name, parentId, categoryForm.IsActive));
+
+        savingCategory = false;
+
+        if (result.Succeeded)
+        {
+            ShowFeedback("Categoría guardada correctamente.", isError: false);
+            CancelCategoryEdit();
+            await ReloadAllAsync();
+        }
+        else
+        {
+            ShowFeedback(string.Join(" ", result.Errors), isError: true);
+        }
+    }
+
+    private async Task DeleteCategory(CatalogCategoryDto category)
+    {
+        var result = await CatalogService.DeleteCategoryAsync(ClientId, category.Id);
+        if (result.Succeeded)
+        {
+            ShowFeedback("Categoría eliminada.", isError: false);
+            await ReloadAllAsync();
+        }
+        else
+        {
+            ShowFeedback(string.Join(" ", result.Errors), isError: true);
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // Productos.
+    // ---------------------------------------------------------------
+
+    private void StartEditProduct(ProductDto product)
+    {
+        editingProductId = product.Id;
+        productForm = new ProductFormModel
+        {
+            Name = product.Name,
+            Description = product.Description,
+            PriceAmount = product.PriceAmount,
+            PriceCurrencyCode = product.PriceCurrencyCode,
+            CategoryId = product.CategoryId?.ToString() ?? string.Empty,
+            Sku = product.Sku ?? string.Empty,
+            IsActive = product.IsActive
+        };
+    }
+
+    private void CancelProductEdit()
+    {
+        editingProductId = null;
+        productForm = new ProductFormModel();
+    }
+
+    private async Task SaveProduct()
+    {
+        savingProduct = true;
+        var categoryId = Guid.TryParse(productForm.CategoryId, out var parsed) ? parsed : (Guid?)null;
+        var sku = string.IsNullOrWhiteSpace(productForm.Sku) ? null : productForm.Sku;
+
+        var result = editingProductId is null
+            ? await CatalogService.CreateProductAsync(ClientId, new CreateProductRequest(productForm.Name, productForm.Description, productForm.PriceAmount, productForm.PriceCurrencyCode, categoryId, sku, productForm.IsActive))
+            : await CatalogService.UpdateProductAsync(ClientId, editingProductId.Value, new UpdateProductRequest(productForm.Name, productForm.Description, productForm.PriceAmount, productForm.PriceCurrencyCode, categoryId, sku, productForm.IsActive));
+
+        savingProduct = false;
+
+        if (result.Succeeded)
+        {
+            ShowFeedback("Producto guardado correctamente.", isError: false);
+            CancelProductEdit();
+            await ReloadAllAsync();
+        }
+        else
+        {
+            ShowFeedback(string.Join(" ", result.Errors), isError: true);
+        }
+    }
+
+    private async Task ToggleProductActive(ProductDto product)
+    {
+        var result = await CatalogService.SetProductActiveAsync(ClientId, product.Id, !product.IsActive);
+        if (!result.Succeeded)
+            ShowFeedback(string.Join(" ", result.Errors), isError: true);
+        await ReloadAllAsync();
+    }
+
+    private async Task DeleteProduct(ProductDto product)
+    {
+        await CatalogService.DeleteProductAsync(ClientId, product.Id);
+        ShowFeedback("Producto eliminado.", isError: false);
+        await ReloadAllAsync();
+    }
+
+    // ---------------------------------------------------------------
+    // Servicios.
+    // ---------------------------------------------------------------
+
+    private void StartEditService(ServiceDto service)
+    {
+        editingServiceId = service.Id;
+        serviceForm = new ServiceFormModel
+        {
+            Name = service.Name,
+            Description = service.Description,
+            PriceAmount = service.PriceAmount,
+            PriceCurrencyCode = service.PriceCurrencyCode,
+            CategoryId = service.CategoryId?.ToString() ?? string.Empty,
+            DurationMinutes = service.DurationMinutes,
+            IsRecurring = service.IsRecurring,
+            IsActive = service.IsActive
+        };
+    }
+
+    private void CancelServiceEdit()
+    {
+        editingServiceId = null;
+        serviceForm = new ServiceFormModel();
+    }
+
+    private async Task SaveService()
+    {
+        savingService = true;
+        var categoryId = Guid.TryParse(serviceForm.CategoryId, out var parsed) ? parsed : (Guid?)null;
+
+        var result = editingServiceId is null
+            ? await CatalogService.CreateServiceAsync(ClientId, new CreateServiceRequest(serviceForm.Name, serviceForm.Description, serviceForm.PriceAmount, serviceForm.PriceCurrencyCode, categoryId, serviceForm.DurationMinutes, serviceForm.IsRecurring, serviceForm.IsActive))
+            : await CatalogService.UpdateServiceAsync(ClientId, editingServiceId.Value, new UpdateServiceRequest(serviceForm.Name, serviceForm.Description, serviceForm.PriceAmount, serviceForm.PriceCurrencyCode, categoryId, serviceForm.DurationMinutes, serviceForm.IsRecurring, serviceForm.IsActive));
+
+        savingService = false;
+
+        if (result.Succeeded)
+        {
+            ShowFeedback("Servicio guardado correctamente.", isError: false);
+            CancelServiceEdit();
+            await ReloadAllAsync();
+        }
+        else
+        {
+            ShowFeedback(string.Join(" ", result.Errors), isError: true);
+        }
+    }
+
+    private async Task ToggleServiceActive(ServiceDto service)
+    {
+        var result = await CatalogService.SetServiceActiveAsync(ClientId, service.Id, !service.IsActive);
+        if (!result.Succeeded)
+            ShowFeedback(string.Join(" ", result.Errors), isError: true);
+        await ReloadAllAsync();
+    }
+
+    private async Task DeleteService(ServiceDto service)
+    {
+        await CatalogService.DeleteServiceAsync(ClientId, service.Id);
+        ShowFeedback("Servicio eliminado.", isError: false);
+        await ReloadAllAsync();
+    }
+
+    private sealed class CategoryFormModel
+    {
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "El nombre es obligatorio.")]
+        [System.ComponentModel.DataAnnotations.MaxLength(150)]
+        public string Name { get; set; } = string.Empty;
+
+        public string ParentCategoryId { get; set; } = string.Empty;
+
+        public bool IsActive { get; set; } = true;
+    }
+
+    private sealed class ProductFormModel
+    {
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "El nombre es obligatorio.")]
+        [System.ComponentModel.DataAnnotations.MaxLength(200)]
+        public string Name { get; set; } = string.Empty;
+
+        public string Description { get; set; } = string.Empty;
+
+        [System.ComponentModel.DataAnnotations.Range(0, double.MaxValue, ErrorMessage = "El precio no puede ser negativo.")]
+        public decimal PriceAmount { get; set; }
+
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "La moneda es obligatoria.")]
+        [System.ComponentModel.DataAnnotations.StringLength(3, MinimumLength = 3, ErrorMessage = "Usa un código ISO de 3 letras.")]
+        public string PriceCurrencyCode { get; set; } = "EUR";
+
+        public string CategoryId { get; set; } = string.Empty;
+
+        public string Sku { get; set; } = string.Empty;
+
+        public bool IsActive { get; set; } = true;
+    }
+
+    private sealed class ServiceFormModel
+    {
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "El nombre es obligatorio.")]
+        [System.ComponentModel.DataAnnotations.MaxLength(200)]
+        public string Name { get; set; } = string.Empty;
+
+        public string Description { get; set; } = string.Empty;
+
+        [System.ComponentModel.DataAnnotations.Range(0, double.MaxValue, ErrorMessage = "El precio no puede ser negativo.")]
+        public decimal PriceAmount { get; set; }
+
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "La moneda es obligatoria.")]
+        [System.ComponentModel.DataAnnotations.StringLength(3, MinimumLength = 3, ErrorMessage = "Usa un código ISO de 3 letras.")]
+        public string PriceCurrencyCode { get; set; } = "EUR";
+
+        public string CategoryId { get; set; } = string.Empty;
+
+        public int? DurationMinutes { get; set; }
+
+        public bool IsRecurring { get; set; }
+
+        public bool IsActive { get; set; } = true;
+    }
+}

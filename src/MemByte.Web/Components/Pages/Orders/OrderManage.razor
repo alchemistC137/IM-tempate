@@ -1,0 +1,479 @@
+@page "/orders/{ClientId:guid}"
+@rendermode InteractiveServer
+@using System.Security.Claims
+@using MemByte.Application.Catalog
+@using MemByte.Application.Clients
+@using MemByte.Application.Orders
+@using MemByte.Domain.Orders
+@using MemByte.Infrastructure.Identity
+@attribute [Authorize(Roles = ApplicationRoleNames.Admin + "," + ApplicationRoleNames.Employee)]
+@inject IOrderService OrderService
+@inject IClientService ClientService
+@inject ICatalogService CatalogService
+@inject NavigationManager NavigationManager
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>Pedidos de @(client?.Name ?? "cliente") - MemByte-IM</PageTitle>
+
+<div class="mb-3">
+    <a href="/orders" class="btn btn-outline-secondary btn-sm">
+        <span class="bi bi-arrow-left me-1" aria-hidden="true"></span> Volver a pedidos
+    </a>
+</div>
+
+@if (loading)
+{
+    <div class="d-flex justify-content-center py-5">
+        <span class="spinner-border" role="status" aria-hidden="true"></span>
+    </div>
+}
+else if (client is null)
+{
+    <div class="alert alert-warning">
+        <span class="bi bi-exclamation-triangle me-2" aria-hidden="true"></span>
+        Cliente no encontrado.
+    </div>
+}
+else
+{
+    <div class="mb-3">
+        <h1 class="h4 mb-0">
+            <span class="bi bi-cart4 me-2" aria-hidden="true"></span>Pedidos de @client.Name
+        </h1>
+        <p class="text-muted small mb-0">
+            Vista genérica de plantilla: cada cliente adaptará el flujo de estados
+            (<code>Order.Status</code>) a su propia gestión de pedidos (ver
+            <code>src/MemByte.Domain/Orders/README.md</code>).
+        </p>
+    </div>
+
+    @if (feedback is not null)
+    {
+        <div class="alert @(feedbackIsError ? "alert-danger" : "alert-success") py-2">@feedback</div>
+    }
+
+    <div class="d-flex justify-content-end mb-2">
+        <button class="btn btn-primary btn-sm" @onclick="CreateOrder" disabled="@creatingOrder">
+            <span class="bi bi-plus-lg me-1" aria-hidden="true"></span> Nuevo pedido
+        </button>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Nº pedido</th>
+                    <th>Estado</th>
+                    <th>Pago</th>
+                    <th class="text-end">Total</th>
+                    <th>Fecha</th>
+                    <th class="text-end">Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (!orders.Any())
+                {
+                    <tr><td colspan="6" class="text-center text-muted py-4">Todavía no hay pedidos.</td></tr>
+                }
+                else
+                {
+                    @foreach (var order in orders.OrderByDescending(o => o.CreatedAt))
+                    {
+                        <tr class="@(selectedOrder?.Id == order.Id ? "table-active" : "")">
+                            <td class="fw-semibold">@order.OrderNumber</td>
+                            <td><span class="badge @StatusBadgeClass(order.Status)">@StatusLabel(order.Status)</span></td>
+                            <td>
+                                @if (order.PaymentStatus == OrderPaymentStatus.Paid)
+                                {
+                                    <span class="badge bg-success-subtle text-success">Pagado</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-warning-subtle text-warning">Pendiente</span>
+                                }
+                            </td>
+                            <td class="text-end">@order.Total.ToString("N2")</td>
+                            <td class="small text-muted">@order.CreatedAt.ToLocalTime().ToString("g")</td>
+                            <td class="text-end">
+                                <button class="btn btn-outline-secondary btn-sm me-1" title="Ver detalle" @onclick="() => SelectOrder(order.Id)">
+                                    <span class="bi bi-eye" aria-hidden="true"></span>
+                                </button>
+                                @if (order.Status == OrderStatus.Draft)
+                                {
+                                    <button class="btn btn-outline-danger btn-sm" title="Eliminar pedido" @onclick="() => DeleteOrder(order.Id)">
+                                        <span class="bi bi-trash" aria-hidden="true"></span>
+                                    </button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+
+    @if (selectedOrder is not null)
+    {
+        <div class="card shadow-sm mt-3">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <span>
+                    <span class="bi bi-receipt me-1" aria-hidden="true"></span>
+                    Pedido @selectedOrder.OrderNumber
+                    <span class="badge @StatusBadgeClass(selectedOrder.Status) ms-2">@StatusLabel(selectedOrder.Status)</span>
+                </span>
+                <div class="d-flex gap-2">
+                    @if (selectedOrder.Status == OrderStatus.Draft)
+                    {
+                        <button class="btn btn-outline-primary btn-sm" @onclick="ConfirmOrder">Confirmar</button>
+                    }
+                    @if (selectedOrder.Status == OrderStatus.Confirmed)
+                    {
+                        <button class="btn btn-outline-primary btn-sm" @onclick="StartProgress">Iniciar</button>
+                    }
+                    @if (selectedOrder.Status is OrderStatus.Confirmed or OrderStatus.InProgress)
+                    {
+                        <button class="btn btn-outline-success btn-sm" @onclick="CompleteOrder">Completar</button>
+                    }
+                    @if (selectedOrder.Status is not (OrderStatus.Completed or OrderStatus.Cancelled))
+                    {
+                        <button class="btn btn-outline-danger btn-sm" @onclick="CancelOrder">Cancelar</button>
+                    }
+                    @if (selectedOrder.PaymentStatus == OrderPaymentStatus.Pending && selectedOrder.Status != OrderStatus.Cancelled)
+                    {
+                        <button class="btn btn-outline-secondary btn-sm" @onclick="MarkAsPaid">Marcar pagado</button>
+                    }
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="row g-2 mb-3">
+                    <div class="col-md-9">
+                        <label class="form-label small mb-1">Notas</label>
+                        <textarea class="form-control form-control-sm" rows="2" @bind="notesDraft"></textarea>
+                    </div>
+                    <div class="col-md-3 d-flex align-items-end">
+                        <button class="btn btn-outline-primary btn-sm w-100" @onclick="SaveNotes">
+                            <span class="bi bi-save me-1" aria-hidden="true"></span> Guardar notas
+                        </button>
+                    </div>
+                </div>
+
+                @if (selectedOrder.Status == OrderStatus.Draft)
+                {
+                    <div class="row g-2 mb-3">
+                        <div class="col-md-6">
+                            <select class="form-select form-select-sm" @bind="newLineCatalogItemId">
+                                <option value="">Selecciona un artículo…</option>
+                                @foreach (var item in catalogItems)
+                                {
+                                    <option value="@item.Id">@item.Name (@item.PriceAmount.ToString("N2") @item.PriceCurrencyCode)</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <input type="number" min="1" class="form-control form-control-sm" @bind="newLineQuantity" />
+                        </div>
+                        <div class="col-md-2">
+                            <button class="btn btn-primary btn-sm w-100" @onclick="AddLine">Añadir línea</button>
+                        </div>
+                    </div>
+                }
+
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Artículo</th>
+                                <th class="text-end">Precio unit.</th>
+                                <th class="text-end">Cantidad</th>
+                                <th class="text-end">Subtotal</th>
+                                @if (selectedOrder.Status == OrderStatus.Draft)
+                                {
+                                    <th class="text-end">Acciones</th>
+                                }
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (!selectedOrder.Lines.Any())
+                            {
+                                <tr><td colspan="5" class="text-center text-muted py-3">Sin líneas todavía.</td></tr>
+                            }
+                            else
+                            {
+                                @foreach (var line in selectedOrder.Lines)
+                                {
+                                    <tr>
+                                        <td>@line.ItemNameSnapshot</td>
+                                        <td class="text-end">@line.UnitPriceSnapshot.ToString("N2") @line.PriceCurrencyCode</td>
+                                        <td class="text-end">
+                                            @if (selectedOrder.Status == OrderStatus.Draft)
+                                            {
+                                                <input type="number" min="1" class="form-control form-control-sm d-inline-block text-end" style="width:80px"
+                                                       value="@line.Quantity"
+                                                       @onchange="e => UpdateLineQuantity(line.Id, e.Value)" />
+                                            }
+                                            else
+                                            {
+                                                @line.Quantity
+                                            }
+                                        </td>
+                                        <td class="text-end">@line.LineTotal.ToString("N2")</td>
+                                        @if (selectedOrder.Status == OrderStatus.Draft)
+                                        {
+                                            <td class="text-end">
+                                                <button class="btn btn-outline-danger btn-sm" title="Quitar línea" @onclick="() => RemoveLine(line.Id)">
+                                                    <span class="bi bi-trash" aria-hidden="true"></span>
+                                                </button>
+                                            </td>
+                                        }
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                        <tfoot>
+                            <tr>
+                                <th colspan="3" class="text-end">Total</th>
+                                <th class="text-end">@selectedOrder.Total.ToString("N2")</th>
+                                @if (selectedOrder.Status == OrderStatus.Draft)
+                                {
+                                    <th></th>
+                                }
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    [Parameter]
+    public Guid ClientId { get; set; }
+
+    private ClientDto? client;
+    private bool loading = true;
+    private List<OrderSummaryDto> orders = [];
+    private List<ProductDto> products = [];
+    private List<ServiceDto> services = [];
+    private List<CatalogItemOption> catalogItems = [];
+    private OrderDto? selectedOrder;
+    private bool creatingOrder;
+    private string? feedback;
+    private bool feedbackIsError;
+    private Guid? newLineCatalogItemId;
+    private int newLineQuantity = 1;
+    private string notesDraft = string.Empty;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        loading = true;
+        selectedOrder = null;
+        client = await ClientService.GetByIdAsync(ClientId);
+        if (client is not null)
+        {
+            await LoadOrdersAsync();
+            await LoadCatalogItemsAsync();
+        }
+
+        loading = false;
+    }
+
+    private async Task LoadOrdersAsync()
+    {
+        orders = (await OrderService.GetOrdersAsync(ClientId)).ToList();
+    }
+
+    private async Task LoadCatalogItemsAsync()
+    {
+        products = (await CatalogService.GetProductsAsync(ClientId)).Where(p => p.IsActive).ToList();
+        services = (await CatalogService.GetServicesAsync(ClientId)).Where(s => s.IsActive).ToList();
+        catalogItems =
+        [
+            .. products.Select(p => new CatalogItemOption(p.Id, p.Name, p.PriceAmount, p.PriceCurrencyCode)),
+            .. services.Select(s => new CatalogItemOption(s.Id, s.Name, s.PriceAmount, s.PriceCurrencyCode))
+        ];
+    }
+
+    private async Task<Guid?> GetCurrentUserIdAsync()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var userIdValue = authState.User.FindFirstValue(ClaimTypes.NameIdentifier);
+        return Guid.TryParse(userIdValue, out var userId) ? userId : null;
+    }
+
+    private async Task CreateOrder()
+    {
+        var userId = await GetCurrentUserIdAsync();
+        if (userId is null)
+        {
+            ShowFeedback("No se ha podido identificar al usuario actual.", isError: true);
+            return;
+        }
+
+        creatingOrder = true;
+        var result = await OrderService.CreateOrderAsync(ClientId, userId.Value, new CreateOrderRequest());
+        creatingOrder = false;
+
+        if (!result.Succeeded)
+        {
+            ShowFeedback(string.Join(" ", result.Errors), isError: true);
+            return;
+        }
+
+        await LoadOrdersAsync();
+        selectedOrder = result.Value;
+        ShowFeedback("Pedido creado correctamente.", isError: false);
+    }
+
+    private async Task SelectOrder(Guid orderId)
+    {
+        selectedOrder = await OrderService.GetOrderAsync(ClientId, orderId);
+        notesDraft = selectedOrder?.Notes ?? string.Empty;
+    }
+
+    private async Task SaveNotes()
+    {
+        if (selectedOrder is null)
+            return;
+
+        var result = await OrderService.UpdateNotesAsync(ClientId, selectedOrder.Id, new UpdateOrderNotesRequest(notesDraft));
+        await HandleOrderResultAsync(result, "Notas actualizadas.");
+    }
+
+    private async Task DeleteOrder(Guid orderId)
+    {
+        var result = await OrderService.DeleteOrderAsync(ClientId, orderId);
+        if (!result.Succeeded)
+        {
+            ShowFeedback(string.Join(" ", result.Errors), isError: true);
+            return;
+        }
+
+        if (selectedOrder?.Id == orderId)
+            selectedOrder = null;
+
+        await LoadOrdersAsync();
+        ShowFeedback("Pedido eliminado.", isError: false);
+    }
+
+    private async Task UpdateLineQuantity(Guid lineId, object? rawValue)
+    {
+        if (selectedOrder is null)
+            return;
+
+        if (!int.TryParse(rawValue?.ToString(), out var quantity) || quantity <= 0)
+        {
+            ShowFeedback("La cantidad debe ser un número mayor que cero.", isError: true);
+            return;
+        }
+
+        var result = await OrderService.UpdateLineQuantityAsync(ClientId, selectedOrder.Id, lineId, new UpdateOrderLineQuantityRequest(quantity));
+        await HandleOrderResultAsync(result, "Cantidad actualizada.");
+    }
+
+    private async Task AddLine()
+    {
+        if (selectedOrder is null || newLineCatalogItemId is null)
+            return;
+
+        var result = await OrderService.AddLineAsync(ClientId, selectedOrder.Id, new AddOrderLineRequest(newLineCatalogItemId.Value, newLineQuantity));
+        await HandleOrderResultAsync(result, "Línea añadida.");
+        newLineCatalogItemId = null;
+        newLineQuantity = 1;
+    }
+
+    private async Task RemoveLine(Guid lineId)
+    {
+        if (selectedOrder is null)
+            return;
+
+        var result = await OrderService.RemoveLineAsync(ClientId, selectedOrder.Id, lineId);
+        await HandleOrderResultAsync(result, "Línea eliminada.");
+    }
+
+    private async Task ConfirmOrder()
+    {
+        if (selectedOrder is null)
+            return;
+
+        var result = await OrderService.ConfirmOrderAsync(ClientId, selectedOrder.Id);
+        await HandleOrderResultAsync(result, "Pedido confirmado.");
+    }
+
+    private async Task StartProgress()
+    {
+        if (selectedOrder is null)
+            return;
+
+        var result = await OrderService.StartProgressAsync(ClientId, selectedOrder.Id);
+        await HandleOrderResultAsync(result, "Pedido iniciado.");
+    }
+
+    private async Task CompleteOrder()
+    {
+        if (selectedOrder is null)
+            return;
+
+        var result = await OrderService.CompleteOrderAsync(ClientId, selectedOrder.Id);
+        await HandleOrderResultAsync(result, "Pedido completado.");
+    }
+
+    private async Task CancelOrder()
+    {
+        if (selectedOrder is null)
+            return;
+
+        var result = await OrderService.CancelOrderAsync(ClientId, selectedOrder.Id);
+        await HandleOrderResultAsync(result, "Pedido cancelado.");
+    }
+
+    private async Task MarkAsPaid()
+    {
+        if (selectedOrder is null)
+            return;
+
+        var result = await OrderService.MarkAsPaidAsync(ClientId, selectedOrder.Id);
+        await HandleOrderResultAsync(result, "Pedido marcado como pagado.");
+    }
+
+    private async Task HandleOrderResultAsync(OrderOperationResult<OrderDto> result, string successMessage)
+    {
+        if (!result.Succeeded)
+        {
+            ShowFeedback(string.Join(" ", result.Errors), isError: true);
+            return;
+        }
+
+        selectedOrder = result.Value;
+        await LoadOrdersAsync();
+        ShowFeedback(successMessage, isError: false);
+    }
+
+    private void ShowFeedback(string message, bool isError)
+    {
+        feedback = message;
+        feedbackIsError = isError;
+    }
+
+    private static string StatusLabel(OrderStatus status) => status switch
+    {
+        OrderStatus.Draft => "Borrador",
+        OrderStatus.Confirmed => "Confirmado",
+        OrderStatus.InProgress => "En curso",
+        OrderStatus.Completed => "Completado",
+        OrderStatus.Cancelled => "Cancelado",
+        _ => status.ToString()
+    };
+
+    private static string StatusBadgeClass(OrderStatus status) => status switch
+    {
+        OrderStatus.Draft => "bg-secondary-subtle text-secondary",
+        OrderStatus.Confirmed => "bg-info-subtle text-info",
+        OrderStatus.InProgress => "bg-primary-subtle text-primary",
+        OrderStatus.Completed => "bg-success-subtle text-success",
+        OrderStatus.Cancelled => "bg-danger-subtle text-danger",
+        _ => "bg-secondary-subtle text-secondary"
+    };
+
+    private sealed record CatalogItemOption(Guid Id, string Name, decimal PriceAmount, string PriceCurrencyCode);
+}

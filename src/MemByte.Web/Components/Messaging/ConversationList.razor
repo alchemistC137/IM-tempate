@@ -1,0 +1,141 @@
+@using MemByte.Application.Messaging
+@using MemByte.Domain.Messaging
+
+@* Lista de conversaciones de la bandeja del usuario. Es un componente de
+   presentación puro: recibe los datos ya filtrados por el servicio, de modo
+   que puede reutilizarse tal cual en las intranets de cliente. *@
+
+<div class="card shadow-sm h-100">
+    <div class="card-header bg-white py-2 d-flex gap-2 flex-wrap align-items-center">
+        <input class="form-control form-control-sm" style="max-width:200px"
+               placeholder="Buscar asunto…"
+               @bind="searchQuery" @bind:event="oninput" />
+
+        <select class="form-select form-select-sm" style="max-width:140px"
+                value="@(StatusFilter?.ToString() ?? string.Empty)"
+                @onchange="OnStatusChanged">
+            <option value="">Todas</option>
+            <option value="@ConversationStatus.Open">Abiertas</option>
+            <option value="@ConversationStatus.Pending">Pendientes</option>
+            <option value="@ConversationStatus.Resolved">Resueltas</option>
+            <option value="@ConversationStatus.Closed">Cerradas</option>
+        </select>
+    </div>
+
+    <div class="list-group list-group-flush overflow-auto" style="max-height:60vh">
+        @if (!FilteredConversations.Any())
+        {
+            <div class="text-center text-muted py-4">
+                <span class="bi bi-chat-left-text fs-4 d-block mb-1" aria-hidden="true"></span>
+                No hay conversaciones.
+            </div>
+        }
+        else
+        {
+            @foreach (var conversation in FilteredConversations)
+            {
+                <button type="button"
+                        class="list-group-item list-group-item-action @(conversation.Id == SelectedConversationId ? "active" : string.Empty)"
+                        @onclick="() => OnConversationSelected.InvokeAsync(conversation.Id)">
+                    <div class="d-flex justify-content-between align-items-start gap-2">
+                        <div class="text-truncate">
+                            <div class="d-flex align-items-center gap-1">
+                                @if (conversation.IsPinned)
+                                {
+                                    <span class="bi bi-pin-angle-fill small" aria-label="Fijada"></span>
+                                }
+                                @if (conversation.IsMuted)
+                                {
+                                    <span class="bi bi-bell-slash small" aria-label="Silenciada"></span>
+                                }
+                                <span class="fw-semibold text-truncate">@conversation.Subject</span>
+                            </div>
+                            <div class="small text-truncate @(conversation.Id == SelectedConversationId ? string.Empty : "text-muted")">
+                                @if (!string.IsNullOrWhiteSpace(conversation.LastMessageSenderDisplayName))
+                                {
+                                    <span>@conversation.LastMessageSenderDisplayName: </span>
+                                }
+                                @conversation.LastMessagePreview
+                            </div>
+                        </div>
+                        <div class="text-end flex-shrink-0">
+                            <div class="small">@FormatDate(conversation.LastMessageAt)</div>
+                            @if (conversation.UnreadCount > 0)
+                            {
+                                <span class="badge rounded-pill bg-primary">@conversation.UnreadCount</span>
+                            }
+                        </div>
+                    </div>
+                    <div class="mt-1 d-flex gap-1">
+                        <span class="badge @StatusCss(conversation.Status)">@StatusLabel(conversation.Status)</span>
+                        @if (conversation.Priority != ConversationPriority.Normal)
+                        {
+                            <span class="badge bg-warning-subtle text-warning-emphasis">@conversation.Priority</span>
+                        }
+                    </div>
+                </button>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    private string searchQuery = string.Empty;
+
+    [Parameter, EditorRequired]
+    public IReadOnlyList<ConversationSummaryDto> Conversations { get; set; } = [];
+
+    [Parameter]
+    public Guid? SelectedConversationId { get; set; }
+
+    [Parameter]
+    public ConversationStatus? StatusFilter { get; set; }
+
+    [Parameter]
+    public EventCallback<Guid> OnConversationSelected { get; set; }
+
+    [Parameter]
+    public EventCallback<ConversationStatus?> StatusFilterChanged { get; set; }
+
+    private IEnumerable<ConversationSummaryDto> FilteredConversations =>
+        string.IsNullOrWhiteSpace(searchQuery)
+            ? Conversations
+            : Conversations.Where(c => c.Subject.Contains(searchQuery, StringComparison.OrdinalIgnoreCase));
+
+    private Task OnStatusChanged(ChangeEventArgs args)
+    {
+        var value = args.Value?.ToString();
+
+        ConversationStatus? status = Enum.TryParse<ConversationStatus>(value, out var parsed)
+            ? parsed
+            : null;
+
+        return StatusFilterChanged.InvokeAsync(status);
+    }
+
+    private static string FormatDate(DateTimeOffset value)
+    {
+        var local = value.LocalDateTime;
+        return local.Date == DateTime.Today
+            ? local.ToString("HH:mm")
+            : local.ToString("dd/MM/yy");
+    }
+
+    private static string StatusLabel(ConversationStatus status) => status switch
+    {
+        ConversationStatus.Open => "Abierta",
+        ConversationStatus.Pending => "Pendiente",
+        ConversationStatus.Resolved => "Resuelta",
+        ConversationStatus.Closed => "Cerrada",
+        _ => status.ToString()
+    };
+
+    private static string StatusCss(ConversationStatus status) => status switch
+    {
+        ConversationStatus.Open => "bg-primary-subtle text-primary-emphasis",
+        ConversationStatus.Pending => "bg-warning-subtle text-warning-emphasis",
+        ConversationStatus.Resolved => "bg-success-subtle text-success-emphasis",
+        ConversationStatus.Closed => "bg-secondary-subtle text-secondary-emphasis",
+        _ => "bg-light text-muted"
+    };
+}

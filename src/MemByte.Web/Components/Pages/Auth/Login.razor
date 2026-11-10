@@ -1,0 +1,112 @@
+@page "/login"
+@layout Layout.AuthLayout
+@using System.ComponentModel.DataAnnotations
+@using MemByte.Application.Auth
+@inject IAuthService AuthService
+@inject NavigationManager NavigationManager
+
+<PageTitle>Iniciar sesión - MemByte-IM</PageTitle>
+
+<h1 class="h5 text-center mb-1">Bienvenido de nuevo</h1>
+<p class="text-center text-muted small mb-4">Inicia sesión para acceder a tu intranet</p>
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger py-2 small" role="alert">@errorMessage</div>
+}
+
+<EditForm Model="Input" FormName="login" OnValidSubmit="LoginUserAsync" method="post" data-enhance="false">
+    <DataAnnotationsValidator />
+
+    <div class="mb-3">
+        <label for="email" class="form-label">Email o usuario</label>
+        <InputText id="email" class="form-control" @bind-Value="Input.Email" autocomplete="username" placeholder="tú@empresa.com" />
+        <ValidationMessage For="() => Input.Email" class="text-danger small" />
+    </div>
+
+    <div class="mb-2">
+        <label for="password" class="form-label">Contraseña</label>
+        <div class="input-group">
+            <InputText id="password" type="@passwordFieldType" class="form-control" @bind-Value="Input.Password" autocomplete="current-password" placeholder="••••••••••••" />
+            <button class="btn btn-outline-secondary" type="button" @onclick="TogglePasswordVisibility" tabindex="-1" aria-label="Mostrar u ocultar contraseña">
+                <i class="bi @(showPassword ? "bi-eye-slash" : "bi-eye")"></i>
+            </button>
+        </div>
+        <ValidationMessage For="() => Input.Password" class="text-danger small" />
+    </div>
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="form-check">
+            <InputCheckbox id="rememberMe" class="form-check-input" @bind-Value="Input.RememberMe" />
+            <label class="form-check-label small" for="rememberMe">Recordarme</label>
+        </div>
+        <a href="/forgot-password" class="small">¿Olvidaste tu contraseña?</a>
+    </div>
+
+    <button type="submit" class="btn btn-primary w-100 py-2">Iniciar sesión</button>
+</EditForm>
+
+@code {
+    [CascadingParameter] private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromForm]
+    private LoginInputModel Input { get; set; } = new();
+
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    private string? errorMessage;
+    private bool showPassword;
+    private string passwordFieldType => showPassword ? "text" : "password";
+
+    private void TogglePasswordVisibility() => showPassword = !showPassword;
+
+    private async Task LoginUserAsync()
+    {
+        var request = new LoginRequest(
+            Input.Email,
+            Input.Password,
+            Input.RememberMe,
+            HttpContext.Connection.RemoteIpAddress?.ToString(),
+            HttpContext.Request.Headers.UserAgent.ToString());
+
+        var result = await AuthService.LoginAsync(request);
+
+        switch (result.Outcome)
+        {
+            case LoginOutcome.Succeeded:
+                NavigationManager.NavigateTo(ReturnUrl ?? result.RedirectUrl ?? "/dashboard", forceLoad: true);
+                break;
+
+            case LoginOutcome.RequiresTwoFactor:
+                NavigationManager.NavigateTo($"/mfa?rememberMe={Input.RememberMe}", forceLoad: true);
+                break;
+
+            case LoginOutcome.LockedOut:
+                var minutes = Math.Max(1, Math.Ceiling(result.LockoutRemaining?.TotalMinutes ?? 1));
+                errorMessage = $"Cuenta bloqueada temporalmente por demasiados intentos fallidos. Inténtalo de nuevo en {minutes} minuto(s).";
+                break;
+
+            case LoginOutcome.NotAllowed:
+                errorMessage = "No se puede iniciar sesión con esta cuenta. Contacta con un administrador.";
+                break;
+
+            default:
+                // Mensaje deliberadamente genérico: no revela si el email existe o si es la contraseña la incorrecta.
+                errorMessage = "Email o contraseña incorrectos.";
+                break;
+        }
+    }
+
+    private sealed class LoginInputModel
+    {
+        [Required(ErrorMessage = "El email es obligatorio.")]
+        [EmailAddress(ErrorMessage = "Introduce un email válido.")]
+        public string Email { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "La contraseña es obligatoria.")]
+        public string Password { get; set; } = string.Empty;
+
+        public bool RememberMe { get; set; }
+    }
+}

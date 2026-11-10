@@ -1,0 +1,119 @@
+@page "/mfa"
+@layout Layout.AuthLayout
+@using System.ComponentModel.DataAnnotations
+@using MemByte.Application.Auth
+@inject IMfaService MfaService
+@inject NavigationManager NavigationManager
+
+<PageTitle>Verificación en dos pasos - MemByte-IM</PageTitle>
+
+<h1 class="h5 text-center mb-1">Verificación en dos pasos</h1>
+<p class="text-center text-muted small mb-4">Introduce el código de 6 dígitos de tu app de autenticación</p>
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger py-2 small" role="alert">@errorMessage</div>
+}
+
+@if (!useRecoveryCode)
+{
+    <EditForm Model="Input" FormName="mfa-code" OnValidSubmit="VerifyCodeAsync" method="post" data-enhance="false">
+        <DataAnnotationsValidator />
+        <input type="hidden" name="rememberMe" value="@RememberMe" />
+
+        <div class="mb-4">
+            <label for="code" class="form-label">Código de verificación</label>
+            <InputText id="code" class="form-control" @bind-Value="Input.Code" autocomplete="one-time-code" inputmode="numeric" maxlength="6" placeholder="000000" />
+            <ValidationMessage For="() => Input.Code" class="text-danger small" />
+        </div>
+
+        <button type="submit" class="btn btn-primary w-100 py-2">Verificar</button>
+    </EditForm>
+
+    <div class="text-center mt-4">
+        <a href="@($"/mfa?useRecoveryCode=true&rememberMe={RememberMe}")" class="small">
+            ¿No tienes acceso a tu autenticador? Usa un código de recuperación
+        </a>
+    </div>
+}
+else
+{
+    <EditForm Model="RecoveryInput" FormName="mfa-recovery" OnValidSubmit="VerifyRecoveryCodeAsync" method="post" data-enhance="false">
+        <DataAnnotationsValidator />
+        <input type="hidden" name="rememberMe" value="@RememberMe" />
+
+        <div class="mb-4">
+            <label for="recoveryCode" class="form-label">Código de recuperación</label>
+            <InputText id="recoveryCode" class="form-control" @bind-Value="RecoveryInput.RecoveryCode" placeholder="xxxxx-xxxxx" />
+            <ValidationMessage For="() => RecoveryInput.RecoveryCode" class="text-danger small" />
+        </div>
+
+        <button type="submit" class="btn btn-primary w-100 py-2">Verificar con código de recuperación</button>
+    </EditForm>
+
+    <div class="text-center mt-4">
+        <a href="@($"/mfa?rememberMe={RememberMe}")" class="small">
+            Volver a introducir el código del autenticador
+        </a>
+    </div>
+}
+
+@code {
+    [SupplyParameterFromForm(FormName = "mfa-code")]
+    private CodeInputModel Input { get; set; } = new();
+
+    [SupplyParameterFromForm(FormName = "mfa-recovery")]
+    private RecoveryInputModel RecoveryInput { get; set; } = new();
+
+    [SupplyParameterFromQuery]
+    private bool RememberMe { get; set; }
+
+    [SupplyParameterFromQuery]
+    private bool UseRecoveryCode { get; set; }
+
+    private bool useRecoveryCode;
+    private string? errorMessage;
+
+    protected override void OnInitialized()
+    {
+        useRecoveryCode = UseRecoveryCode;
+    }
+
+    private async Task VerifyCodeAsync()
+    {
+        var result = await MfaService.ValidateAuthenticatorCodeAsync(Input.Code, RememberMe);
+        HandleResult(result);
+    }
+
+    private async Task VerifyRecoveryCodeAsync()
+    {
+        var result = await MfaService.ValidateRecoveryCodeAsync(RecoveryInput.RecoveryCode);
+        HandleResult(result);
+    }
+
+    private void HandleResult(LoginResult result)
+    {
+        if (result.Outcome == LoginOutcome.Succeeded)
+        {
+            NavigationManager.NavigateTo(result.RedirectUrl ?? "/dashboard", forceLoad: true);
+            return;
+        }
+
+        errorMessage = result.Outcome == LoginOutcome.LockedOut
+            ? "Cuenta bloqueada temporalmente por demasiados intentos fallidos."
+            : "Código incorrecto. Inténtalo de nuevo.";
+    }
+
+    private sealed class CodeInputModel
+    {
+        [Required(ErrorMessage = "Introduce el código de verificación.")]
+        [StringLength(6, MinimumLength = 6, ErrorMessage = "El código debe tener 6 dígitos.")]
+        public string Code { get; set; } = string.Empty;
+    }
+
+    private sealed class RecoveryInputModel
+    {
+        [Required(ErrorMessage = "Introduce un código de recuperación.")]
+        public string RecoveryCode { get; set; } = string.Empty;
+    }
+}

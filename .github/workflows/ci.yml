@@ -1,0 +1,71 @@
+name: CI — Build, Test & Security Audit
+
+on:
+  push:
+    branches: [ master, develop ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  infrastructure-and-container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Bicep
+        run: |
+          az bicep build --file infra/main.bicep --stdout > /dev/null
+          az bicep build --file infra/registry.bicep --stdout > /dev/null
+          az bicep build-params --file infra/production.bicepparam --stdout > /dev/null
+
+      - name: Build Linux container
+        run: docker build --tag membyte-im:ci .
+
+      - name: Smoke test container and persistent storage as non-root
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach --name membyte-ci --publish 127.0.0.1:8080:8080 \
+            --volume membyte-ci-home:/home \
+            --env 'ConnectionStrings__Default=Host=localhost;Database=smoke;Username=smoke;Password=smoke' \
+            --env ASPNETCORE_FORWARDEDHEADERS_ENABLED=true membyte-im:ci
+          trap 'docker logs membyte-ci; docker rm --force membyte-ci; docker volume rm membyte-ci-home' EXIT
+          curl --fail --silent --show-error --retry 15 --retry-delay 2 \
+            --retry-all-errors --max-time 10 --header 'X-Forwarded-Proto: https' \
+            http://127.0.0.1:8080/health | grep -Fx Healthy
+          docker exec membyte-ci sh -c 'test "$(id -u)" != 0 && test -w /home/.dataprotection-keys && test -w /home/.messaging-attachments'
+          python3 scripts/smoke-test-web-assets.py http://127.0.0.1:8080/
+
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Audit NuGet packages
+        run: dotnet list package --vulnerable --include-transitive
+        # Falla el build si hay vulnerabilidades (NuGetAudit=true en Directory.Build.props)
+
+      - name: Build (treat warnings as errors)
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Run tests with coverage
+        run: dotnet test --no-build --configuration Release --collect:"XPlat Code Coverage"
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+
+      - name: Scan for hardcoded secrets
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          extra_args: --only-verified

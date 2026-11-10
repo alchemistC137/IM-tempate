@@ -1,0 +1,112 @@
+@page "/clients/new"
+@rendermode InteractiveServer
+@using System.ComponentModel.DataAnnotations
+@using MemByte.Application.Clients
+@using MemByte.Infrastructure.Identity
+@attribute [Authorize(Roles = ApplicationRoleNames.Admin)]
+@inject IClientService ClientService
+@inject NavigationManager NavigationManager
+
+<PageTitle>Nuevo cliente - MemByte-IM</PageTitle>
+
+<div class="mb-3">
+    <a href="/clients" class="btn btn-outline-secondary btn-sm">
+        <span class="bi bi-arrow-left me-1" aria-hidden="true"></span> Volver al listado
+    </a>
+</div>
+
+<div class="card shadow-sm" style="max-width:600px">
+    <div class="card-header bg-white">
+        <h1 class="h5 mb-0">
+            <span class="bi bi-building-add me-2" aria-hidden="true"></span>Nuevo cliente
+        </h1>
+    </div>
+    <div class="card-body">
+        @if (saved)
+        {
+            <div class="alert alert-success d-flex align-items-center gap-2">
+                <span class="bi bi-check-circle-fill" aria-hidden="true"></span>
+                Cliente creado correctamente.
+                <a href="/clients" class="ms-auto btn btn-sm btn-success">Ver listado</a>
+            </div>
+        }
+
+        @if (serverErrors.Count > 0)
+        {
+            <div class="alert alert-danger">
+                <ul class="mb-0">
+                    @foreach (var error in serverErrors)
+                    {
+                        <li>@error</li>
+                    }
+                </ul>
+            </div>
+        }
+
+        <EditForm Model="Input" OnValidSubmit="SaveClient">
+            <DataAnnotationsValidator />
+
+            <div class="row g-3">
+                <div class="col-12">
+                    <label class="form-label">Nombre del cliente <span class="text-danger">*</span></label>
+                    <InputText class="form-control" @bind-Value="Input.Name" placeholder="Ej. Acme Corp" />
+                    <ValidationMessage For="() => Input.Name" class="text-danger small" />
+                </div>
+                <div class="col-12">
+                    <div class="form-check form-switch">
+                        <InputCheckbox class="form-check-input" @bind-Value="Input.IsActive" id="isActive" />
+                        <label class="form-check-label" for="isActive">Cliente activo</label>
+                    </div>
+                </div>
+            </div>
+
+            <hr class="my-4" />
+
+            <div class="d-flex gap-2 justify-content-end">
+                <a href="/clients" class="btn btn-outline-secondary btn-sm">Cancelar</a>
+                <button type="submit" class="btn btn-primary btn-sm" disabled="@saving">
+                    @if (saving)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                    }
+                    Guardar cliente
+                </button>
+            </div>
+        </EditForm>
+    </div>
+</div>
+
+@code {
+    private ClientFormModel Input { get; set; } = new();
+    private bool saving;
+    private bool saved;
+    private List<string> serverErrors = [];
+
+    private async Task SaveClient()
+    {
+        saving = true;
+        serverErrors = [];
+
+        var result = await ClientService.CreateAsync(new CreateClientRequest(Input.Name, Input.IsActive));
+
+        saving = false;
+
+        if (result.Succeeded)
+        {
+            saved = true;
+        }
+        else
+        {
+            serverErrors = result.Errors.ToList();
+        }
+    }
+
+    private sealed class ClientFormModel
+    {
+        [Required(ErrorMessage = "El nombre del cliente es obligatorio.")]
+        [MaxLength(200)]
+        public string Name { get; set; } = string.Empty;
+
+        public bool IsActive { get; set; } = true;
+    }
+}

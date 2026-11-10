@@ -1,0 +1,8 @@
+@* Aísla los providers de MudBlazor (que requieren JS interop) en su propia
+   isla interactiva, para no forzar el modo interactivo en todo el layout. *@
+@rendermode InteractiveServer
+
+<MudThemeProvider Theme="MemByteTheme.Theme" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
