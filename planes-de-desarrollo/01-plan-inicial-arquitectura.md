@@ -1,5 +1,10 @@
 # Plan 01 — Arquitectura Inicial de MemByte-IM
 
+> **Contexto histórico:** este plan documenta el origen de la solución y su roadmap.
+> El repositorio es ahora una plantilla genérica, separada de la intranet de MemByte.
+> Para nuevas instalaciones prevalecen `README.md`, `agents.md` y el runbook 02;
+> no reutilizar nombres de recursos, conexiones ni credenciales de los ejemplos antiguos.
+
 > **Estado:** Borrador · **Versión:** 1.0 · **Fecha:** 2026-08-01
 >
 > **Stack base:** .NET 10 LTS · C# 13 · Blazor · Entity Framework Core 10

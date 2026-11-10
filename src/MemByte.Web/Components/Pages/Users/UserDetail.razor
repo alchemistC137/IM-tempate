@@ -11,7 +11,7 @@
 @inject IClientService ClientService
 @inject NavigationManager NavigationManager
 
-<PageTitle>@(user is null ? "Usuario" : user.DisplayName) - MemByte-IM</PageTitle>
+<PageTitle>@(user is null ? "Usuario" : user.DisplayName) - @Intranet.Value.ApplicationName</PageTitle>
 
 <div class="mb-3">
     <a href="/users" class="btn btn-outline-secondary btn-sm">

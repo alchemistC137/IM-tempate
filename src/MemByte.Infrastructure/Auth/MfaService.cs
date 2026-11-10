@@ -1,9 +1,11 @@
 using System.Text;
 using MemByte.Application.Auth;
+using MemByte.Application.Configuration;
 using MemByte.Infrastructure.Audit;
 using MemByte.Infrastructure.Identity;
 using MemByte.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Options;
 
 namespace MemByte.Infrastructure.Auth;
 
@@ -16,9 +18,9 @@ namespace MemByte.Infrastructure.Auth;
 /// </summary>
 public class MfaService : IMfaService
 {
-	private const string Issuer = "MemByte-IM";
 	private const int RecoveryCodesCount = 8;
 
+	private readonly IntranetOptions _intranet;
 	private readonly UserManager<ApplicationUser> _userManager;
 	private readonly SignInManager<ApplicationUser> _signInManager;
 	private readonly MemByteDbContext? _dbContext;
@@ -28,8 +30,10 @@ public class MfaService : IMfaService
 		UserManager<ApplicationUser> userManager,
 		SignInManager<ApplicationUser> signInManager,
 		MemByteDbContext? dbContext = null,
-		ISecurityTelemetryPublisher? telemetryPublisher = null)
+		ISecurityTelemetryPublisher? telemetryPublisher = null,
+		IOptions<IntranetOptions>? intranetOptions = null)
 	{
+		_intranet = intranetOptions?.Value ?? new IntranetOptions();
 		_userManager = userManager;
 		_signInManager = signInManager;
 		_dbContext = dbContext;
@@ -164,13 +168,13 @@ public class MfaService : IMfaService
 		return result.ToString().ToUpperInvariant();
 	}
 
-	private static string GenerateAuthenticatorUri(string userIdentifier, string unformattedKey)
+	private string GenerateAuthenticatorUri(string userIdentifier, string unformattedKey)
 	{
 		const string uriFormat = "otpauth://totp/{0}:{1}?secret={2}&issuer={0}&digits=6";
 
 		return string.Format(
 			uriFormat,
-			Uri.EscapeDataString(Issuer),
+			Uri.EscapeDataString($"{_intranet.CompanyName} - {_intranet.ApplicationName}"),
 			Uri.EscapeDataString(userIdentifier),
 			unformattedKey);
 	}

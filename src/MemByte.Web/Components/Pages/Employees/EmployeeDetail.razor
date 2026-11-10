@@ -7,7 +7,7 @@
 @inject IEmployeeService EmployeeService
 @inject NavigationManager NavigationManager
 
-<PageTitle>@(employee is null ? "Empleado" : employee.FullName) - MemByte-IM</PageTitle>
+<PageTitle>@(employee is null ? "Empleado" : employee.FullName) - @Intranet.Value.ApplicationName</PageTitle>
 
 <div class="mb-3">
     <a href="/employees" class="btn btn-outline-secondary btn-sm">

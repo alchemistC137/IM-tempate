@@ -1,4 +1,5 @@
 using MemByte.Application.Notifications;
+using MemByte.Application.Configuration;
 using MemByte.Application.Users;
 using MemByte.Domain.Clients;
 using MemByte.Domain.Employees;
@@ -7,6 +8,7 @@ using MemByte.Infrastructure.Identity;
 using MemByte.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace MemByte.Infrastructure.Users;
 
@@ -29,13 +31,16 @@ public class UserService : IUserService
 	private readonly MemByteDbContext _dbContext;
 	private readonly IEmailSender _emailSender;
 	private readonly ISecurityTelemetryPublisher? _telemetryPublisher;
+	private readonly IntranetOptions _intranet;
 
 	public UserService(
 		UserManager<ApplicationUser> userManager,
 		MemByteDbContext dbContext,
 		IEmailSender emailSender,
-		ISecurityTelemetryPublisher? telemetryPublisher = null)
+		ISecurityTelemetryPublisher? telemetryPublisher = null,
+		IOptions<IntranetOptions>? intranetOptions = null)
 	{
+		_intranet = intranetOptions?.Value ?? new IntranetOptions();
 		_userManager = userManager;
 		_dbContext = dbContext;
 		_emailSender = emailSender;
@@ -128,8 +133,8 @@ public class UserService : IUserService
 
 		var actionUrlPath = await SendActivationLinkAsync(
 			user,
-			"Activa tu cuenta en MemByte-IM",
-			"Se ha creado una cuenta para ti en MemByte-IM. Completa el siguiente enlace para fijar tu " +
+			$"Activa tu cuenta en {_intranet.ApplicationName}",
+			$"Se ha creado una cuenta para ti en {_intranet.ApplicationName}. Completa el siguiente enlace para fijar tu " +
 			"contraseña y activar el acceso:",
 			cancellationToken);
 
@@ -235,8 +240,8 @@ public class UserService : IUserService
 
 		var actionUrlPath = await SendActivationLinkAsync(
 			user,
-			"Restablece tu contraseña en MemByte-IM",
-			"Un administrador ha solicitado el restablecimiento de tu contraseña en MemByte-IM. Completa el " +
+			$"Restablece tu contraseña en {_intranet.ApplicationName}",
+			$"Un administrador ha solicitado el restablecimiento de tu contraseña en {_intranet.ApplicationName}. Completa el " +
 			"siguiente enlace para fijar una nueva contraseña:",
 			cancellationToken);
 

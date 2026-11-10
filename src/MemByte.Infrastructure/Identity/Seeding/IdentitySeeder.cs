@@ -54,7 +54,7 @@ public static class IdentitySeeder
 			UserName = adminEmail,
 			Email = adminEmail,
 			EmailConfirmed = true,
-			DisplayName = "Administrador MemByte-IM"
+			DisplayName = "Administrador"
 		};
 
 		var createResult = await userManager.CreateAsync(admin, adminPassword);
