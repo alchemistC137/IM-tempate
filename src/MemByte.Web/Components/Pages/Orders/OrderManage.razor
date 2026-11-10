@@ -13,7 +13,7 @@
 @inject NavigationManager NavigationManager
 @inject AuthenticationStateProvider AuthenticationStateProvider
 
-<PageTitle>Pedidos de @(client?.Name ?? "cliente") - MemByte-IM</PageTitle>
+<PageTitle>Pedidos de @(client?.Name ?? "cliente") - @Intranet.Value.ApplicationName</PageTitle>
 
 <div class="mb-3">
     <a href="/orders" class="btn btn-outline-secondary btn-sm">

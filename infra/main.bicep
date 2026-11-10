@@ -8,8 +8,16 @@ param planName string
 @maxLength(24)
 param keyVaultName string
 
-param registryName string = 'acrmembyte${uniqueString(resourceGroup().id)}'
-param imageRepository string = 'membyte-im'
+param registryName string = 'acrintranet${uniqueString(resourceGroup().id)}'
+param imageRepository string = 'intranet'
+
+@minLength(1)
+@maxLength(100)
+param applicationName string = 'Intranet'
+
+@minLength(1)
+@maxLength(100)
+param companyName string = 'Mi empresa'
 
 @description('Git commit SHA tag. The image must already exist in ACR.')
 @minLength(1)
@@ -159,6 +167,9 @@ resource settings 'Microsoft.Web/sites/config@2023-12-01' = {
   name: 'appsettings'
   properties: union({
     ASPNETCORE_ENVIRONMENT: 'Production'
+    Intranet__ApplicationName: applicationName
+    Intranet__CompanyName: companyName
+    DataProtection__ApplicationName: appName
     ASPNETCORE_HTTP_PORTS: '8080'
     // App Service terminates TLS and only exposes the container through its proxy.
     ASPNETCORE_FORWARDEDHEADERS_ENABLED: 'true'

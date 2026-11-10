@@ -7,7 +7,7 @@
 @inject IClientService ClientService
 @inject NavigationManager NavigationManager
 
-<PageTitle>@(client is null ? "Cliente" : client.Name) - MemByte-IM</PageTitle>
+<PageTitle>@(client is null ? "Cliente" : client.Name) - @Intranet.Value.ApplicationName</PageTitle>
 
 <div class="mb-3">
     <a href="/clients" class="btn btn-outline-secondary btn-sm">

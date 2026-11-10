@@ -4,7 +4,7 @@ param location string = resourceGroup().location
 
 @minLength(5)
 @maxLength(50)
-param registryName string = 'acrmembyte${uniqueString(resourceGroup().id)}'
+param registryName string = 'acrintranet${uniqueString(resourceGroup().id)}'
 
 resource registry 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
   name: registryName

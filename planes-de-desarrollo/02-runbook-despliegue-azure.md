@@ -1,4 +1,4 @@
-# MemByte-IM — Runbook de despliegue en Azure (Bicep + Docker)
+# Plantilla de intranet — Runbook de despliegue en Azure (Bicep + Docker)
 
 > **Documento vivo.** Procedimiento de referencia para aprovisionar con Bicep y ejecutar
 > la imagen .NET 10 en App Service Linux. Sustituye el despliegue ZIP y los perfiles de
@@ -9,7 +9,7 @@
 
 | Recurso | Declaración y propósito |
 |---|---|
-| ACR Basic | `infra/registry.bicep`, registro privado sin usuario administrador; imágenes `membyte-im:<commit-sha>`. |
+| ACR Basic | `infra/registry.bicep`, registro privado sin usuario administrador; imágenes `intranet:<commit-sha>`. |
 | App Service Plan Linux | `infra/main.bicep`, B1 por defecto, una instancia; F1 ya no se utiliza. B1, ACR y telemetría tienen coste. Revisar presupuesto y cuotas antes de aplicar. |
 | App Service | Docker Linux/amd64, puerto 8080, HTTPS obligatorio, TLS 1.2+, WebSockets y afinidad para Blazor Server. FTP y publicación básica SCM deshabilitados. |
 | Identidad administrada de ejecución | `<appName>-runtime`, `AcrPull` solo sobre ACR y `Key Vault Secrets User` solo sobre el vault; sin claves de registro. También se conserva la identidad de sistema del sitio existente. |
@@ -17,16 +17,19 @@
 | Log Analytics / Application Insights | Workspace con retención de 30 días y telemetría de aplicación; conexión en `ApplicationInsights__ConnectionString`. |
 | PostgreSQL / Supabase | No se crea ni modifica con esta plantilla. Migraciones y cuentas de producción se gestionan por separado. |
 
-`infra/production.bicepparam` define el nuevo entorno `production` en el grupo
-`rg-membyte-main`, con ubicación explícita `spaincentral` (Spain Central):
-App Service `membyte-im-main`, plan `plan-membyte-main` y Key Vault `kv-membyte-main`.
+`infra/production.bicepparam` toma los nombres de recursos de las variables de entorno
+`AZURE_APP_NAME`, `AZURE_PLAN_NAME` y `AZURE_KEY_VAULT_NAME`, con ubicación de ejemplo
+`spaincentral` (Spain Central). Los valores de respaldo `*-example` solo sirven para
+compilar en CI; CD exige valores explícitos, junto con `INTRANET_APPLICATION_NAME`
+e `INTRANET_COMPANY_NAME`, que se aplican a la configuración visible de la intranet.
 El registro ACR se aprovisiona en la ubicación del grupo y su nombre se deriva de
 forma estable del ID del grupo. Mantener el grupo en Spain Central para que coincidan.
 Antes de aplicar, comprobar disponibilidad regional y cuota de B1 Linux, ACR y
 telemetría, además de la disponibilidad global de los nombres del sitio y del vault.
 Estos nombres no se han reservado ni se ha comprobado su disponibilidad en Azure.
-El despliegue antiguo (`membyte-im-dev`, `plan-membyte-dev`, `kv-membyte-dev`)
-no se modifica ni se traslada automáticamente al nuevo grupo.
+Cada empresa debe tener su propio grupo, base de datos, identidades y secretos.
+No apuntar a recursos de MemByte ni de otros clientes. Esta plantilla no migra
+automáticamente datos ni configuraciones de otra instalación.
 
 El grupo de recursos y la confianza OIDC se preparan una vez como bootstrap.
 Las ejecuciones normales son incrementales e idempotentes: no eliminan la base de
@@ -51,8 +54,13 @@ Ejecutar desde la raíz del repositorio en PowerShell:
 az login --use-device-code
 az account set --subscription "<SUBSCRIPTION_ID>"
 az bicep version
-$rg = "rg-membyte-main"
+$rg = "rg-intranet-ejemplo"
 $location = "spaincentral"
+$env:AZURE_APP_NAME = "<nombre-global-unico-del-sitio>"
+$env:AZURE_PLAN_NAME = "<nombre-del-plan>"
+$env:AZURE_KEY_VAULT_NAME = "<nombre-global-unico-del-vault>"
+$env:INTRANET_APPLICATION_NAME = "Portal del equipo"
+$env:INTRANET_COMPANY_NAME = "Empresa de ejemplo"
 az group create --name $rg --location $location
 
 # Una vez por suscripción. Esperar a registrationState = Registered.
@@ -69,11 +77,11 @@ cambiando `location`.
 ### Identidad OIDC para GitHub Actions
 
 Para un bootstrap nuevo, crear una aplicación Entra y su service principal, sin
-generar contraseña. Si ya existe `membyte-im-github-production`, reutilizar su Id. de
-aplicación (cliente) y su entidad de servicio en lugar de crear duplicados:
+generar contraseña. Usar una identidad exclusiva de esta instalación, sin reutilizar
+la de MemByte ni la de otro cliente:
 
 ```powershell
-$clientId = az ad app create --display-name "membyte-im-github-production" --query appId -o tsv
+$clientId = az ad app create --display-name "intranet-ejemplo-github-production" --query appId -o tsv
 $principalId = az ad sp create --id $clientId --query id -o tsv
 $scope = az group show --name $rg --query id -o tsv
 
@@ -98,12 +106,13 @@ En Entra → App registrations → esa aplicación → Federated credentials, a�
 | Campo | Valor |
 |---|---|
 | Issuer | `https://token.actions.githubusercontent.com` |
-| Subject | `repo:alchemistC137@82764907/MemByte-IM@1319419949:environment:production` |
+| Subject | `repo:<OWNER>/<REPO>:environment:production` (formato estándar; verificar el formato del repositorio destino) |
 | Audience | `api://AzureADTokenExchange` |
 
-El repositorio utiliza el formato de sujeto OIDC con IDs inmutables. En el formulario
-de Entra, el Organization ID (ID del propietario, también para una cuenta personal)
-es `82764907` y el Repository ID es `1319419949`. No son los IDs de la aplicación Entra.
+Consultar la configuración OIDC del repositorio destino antes de crear la confianza.
+Si usa sujetos con IDs inmutables, emplear su propietario e ID de repositorio reales
+en vez del formato estándar anterior. No copiar el sujeto de este repositorio ni
+los IDs de otro cliente; no son los IDs de la aplicación Entra.
 
 En GitHub → Settings → Environments → `production` → Variables:
 
@@ -112,16 +121,23 @@ En GitHub → Settings → Environments → `production` → Variables:
 | `AZURE_CLIENT_ID` | `$clientId` |
 | `AZURE_TENANT_ID` | Tenant de `az account show --query tenantId -o tsv` |
 | `AZURE_SUBSCRIPTION_ID` | Suscripción de `az account show --query id -o tsv` |
-| `AZURE_RESOURCE_GROUP` | `rg-membyte-main` |
+| `AZURE_RESOURCE_GROUP` | Grupo exclusivo de la empresa, por ejemplo `rg-intranet-ejemplo` |
+| `AZURE_APP_NAME` | Nombre globalmente único del App Service |
+| `AZURE_PLAN_NAME` | Nombre del plan de esta instalación |
+| `AZURE_KEY_VAULT_NAME` | Nombre globalmente único del Key Vault (3–24 caracteres) |
+| `INTRANET_APPLICATION_NAME` | Nombre visible de la intranet |
+| `INTRANET_COMPANY_NAME` | Nombre de la empresa |
 
-Son identificadores, no contraseñas. Ya no se usan `AZURE_APP_NAME` ni
-`AZURE_PUBLISH_PROFILE`; retirar el perfil antiguo de GitHub tras la migración.
+Son identificadores y nombres visibles, no contraseñas. No se usa
+`AZURE_PUBLISH_PROFILE`; retirar el perfil antiguo de GitHub tras una migración.
+Configurar las mismas variables en la terminal para aprovisionamientos manuales.
+Adaptar `location` en el fichero de parámetros si se elige otra región.
 
 ## 3. Secretos y primer aprovisionamiento
 
 No introducir connection strings en Bicep, parámetros, workflows ni imágenes.
-El secreto requerido es `ConnectionStrings--Default` en `kv-membyte-main`.
-El vault nuevo no hereda los secretos del antiguo `kv-membyte-dev`: cargarlos de forma
+El secreto requerido es `ConnectionStrings--Default` en el vault de esta empresa.
+El vault nuevo no hereda secretos de otra instalación: cargarlos de forma
 segura antes de validar el arranque. La base de datos sigue siendo externa; elegir
 explícitamente la conexión de destino antes de cargar el secreto.
 
@@ -133,8 +149,8 @@ $acr = az deployment group show --resource-group $rg --name container-registry -
 $server = az deployment group show --resource-group $rg --name container-registry --query properties.outputs.loginServer.value -o tsv
 $tag = git rev-parse HEAD
 az acr login --name $acr
-docker build --platform linux/amd64 --tag "${server}/membyte-im:${tag}" .
-docker push "${server}/membyte-im:${tag}"
+docker build --platform linux/amd64 --tag "${server}/intranet:${tag}" .
+docker push "${server}/intranet:${tag}"
 
 az deployment group what-if --resource-group $rg --template-file infra\main.bicep --parameters infra\production.bicepparam imageTag=$tag registryName=$acr
 az deployment group create --resource-group $rg --name initial-app --template-file infra\main.bicep --parameters infra\production.bicepparam imageTag=$tag registryName=$acr
@@ -146,7 +162,7 @@ En un entorno nuevo la app no podrá completar el arranque hasta cargar la conex
 
 1. Asignar al operador `Key Vault Secrets Officer` solo sobre el vault recién creado:
    ```powershell
-   $vaultId = az keyvault show --name "kv-membyte-main" --resource-group $rg --query id -o tsv
+   $vaultId = az keyvault show --name $env:AZURE_KEY_VAULT_NAME --resource-group $rg --query id -o tsv
    $me = az ad signed-in-user show --query id -o tsv
    az role assignment create --assignee-object-id $me --assignee-principal-type User --role "Key Vault Secrets Officer" --scope $vaultId
    ```
@@ -171,11 +187,10 @@ en propagarse; reiniciar o refrescar las referencias tras corregirlos.
 
 ## 4. Migrar el sitio existente desde ZIP
 
-El destino actual es un entorno nuevo en otro grupo y región, no una actualización
-in situ. No copiar los nombres antiguos a `production.bicepparam`: aprovisionar el
-nuevo entorno, trasladar los datos persistentes de forma controlada y validarlo antes
-de cambiar dominios o retirar el antiguo. No borrar el entorno antiguo como parte
-del primer despliegue.
+Para una empresa nueva se parte de recursos y datos vacíos, no de una copia de la
+instalación de MemByte. Esta sección solo aplica a una instalación previa de la misma
+empresa: inventariar sus propios recursos, trasladar sus datos de forma controlada
+y validar antes de cambiar dominios o retirar el entorno antiguo.
 
 Los pasos siguientes describen la alternativa de conversión in situ, que solo aplica
 si se decide conservar explícitamente el sitio y su región originales:
@@ -190,6 +205,9 @@ si se decide conservar explícitamente el sitio y su región originales:
 4. Conservar `/home/.dataprotection-keys`. Si hay adjuntos locales bajo
    `/home/site/wwwroot/.messaging-attachments`, copiarlos a `/home/.messaging-attachments`
    antes de cambiar el runtime. Si ya hay Azure Blob, configurar su secreto.
+   Conservar también el identificador `DataProtection__ApplicationName` anterior si
+   se necesita preservar cookies y tokens. Bicep usa por defecto el nombre del sitio;
+   cambiar ese identificador invalida sesiones. Nunca compartir claves entre empresas.
 5. Aplicar `what-if`, comprobar que actualiza el sitio/plan/vault esperados y desplegar
    una imagen existente como en la sección 3, o iniciar CD manualmente después de CI.
 6. Confirmar `/health`, `/login`, CSS/JS, login/MFA, carga/descarga de adjuntos y conexión
@@ -221,7 +239,8 @@ Antes de autenticarse en Azure, comprueba que ese SHA sigue siendo el actual de
 de `ci.yml` para un push de ese SHA, rama y repositorio debe estar completada con
 conclusión `success`. CI ausente, pendiente, fallido o cancelado bloquea el despliegue;
 esperar o corregir CI e iniciar de nuevo el workflow. No se aceptan ejecuciones de PR.
-Después autentica con OIDC, aprovisiona ACR, publica `membyte-im:<SHA>`, aplica Bicep
+Después autentica con OIDC, exige las variables de la instalación antes de aprovisionar
+ACR, publica `intranet:<SHA>`, aplica Bicep
 y espera una respuesta correcta de `/health`. No hay tag `latest`.
 Si `master` ha avanzado mientras el inicio manual estaba pendiente, el job rechaza
 el SHA obsoleto antes de acceder a Azure para evitar desplegarlo fuera de orden.
@@ -250,10 +269,10 @@ y recuperación de datos antes de aplicar migraciones destructivas.
 az bicep build --file infra\main.bicep --stdout
 az bicep build --file infra\registry.bicep --stdout
 az bicep build-params --file infra\production.bicepparam --stdout
-docker build --tag membyte-im:local .
+docker build --tag intranet:local .
 # Usar una conexión de pruebas en una variable de entorno local, nunca en la imagen.
 # El montaje conserva claves y adjuntos entre recreaciones del contenedor.
-docker run --rm --publish 8080:8080 --env ConnectionStrings__Default --volume membyte-home:/home membyte-im:local
+docker run --rm --publish 8080:8080 --env ConnectionStrings__Default --volume intranet-ejemplo-home:/home intranet:local
 ```
 
 - **Docker no conecta:** arrancar Docker Desktop con motor Linux antes de construir.

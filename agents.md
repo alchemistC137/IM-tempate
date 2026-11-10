@@ -1,4 +1,4 @@
-# MemByte-IM — Agentes del Sistema
+# Plantilla de Intranet — Agentes del Sistema
 
 > **Documento vivo.** Este fichero debe actualizarse cada vez que se introduzca un cambio relevante en los roles, permisos, módulos o criterios de éxito del sistema. Ante cualquier modificación que afecte a quién puede hacer qué, este documento es la fuente de verdad. Cada Pull Request que altere permisos, añada módulos o cambie flujos de negocio debe incluir la actualización correspondiente aquí.
 
@@ -6,23 +6,26 @@
 
 ## Contexto del Negocio
 
-**MemByte** es una empresa de soluciones digitales fundada y gestionada inicialmente por una sola persona, con vocación de crecer con equipo propio. El modelo de negocio consiste en diseñar, desarrollar y mantener soluciones digitales a medida para otros clientes: aplicaciones web, intranets corporativas similares a este mismo proyecto, y cualquier solución informática o digital que se pueda ofrecer.
+Esta solución es la **plantilla genérica de intranet** que MemByte utiliza como base
+para empresas cliente. La intranet interna de MemByte ya es una instalación separada
+y no es el destino de los cambios ni despliegues de este repositorio.
 
-**MemByte-IM** es la herramienta interna con la que MemByte gestiona su propia operativa y la de sus clientes. El **catálogo de productos** de la empresa incluye:
+Cada empresa dispone de una instalación independiente con identidad configurable,
+base de datos, usuarios, secretos, adjuntos y recursos propios. No hay aislamiento
+multiempresa dentro de una misma base de datos: no compartir instalaciones entre
+empresas. La entidad de negocio `Client` no representa al propietario de la intranet.
 
-- Aplicaciones web (portales, dashboards, herramientas SaaS).
-- Intranets corporativas (como esta misma plataforma, replicable para otros clientes).
-- Cualquier solución informática y digital personalizada según las necesidades del cliente.
-
-La plataforma sirve, por tanto, un doble propósito:
-1. **Uso interno:** gestionar los proyectos, el equipo y las operaciones de MemByte.
-2. **Producto replicable:** ser la base tecnológica que se despliega y adapta para cada cliente que contrate una intranet similar.
+La sección `Intranet` configura `ApplicationName` y `CompanyName`; no concede
+permisos. La plantilla no incluye credenciales administrativas ni datos de una empresa.
+Los roles y la matriz siguientes son la base funcional a adaptar por cliente.
+Las capacidades de proyectos, horas, facturación y portal externo siguen siendo
+roadmap; esta conversión no las implementa ni amplía autorizaciones existentes.
 
 ---
 
 ## Propósito del Proyecto
 
-MemByte-IM es una intranet empresarial modular diseñada para ser el núcleo operativo digital de cualquier organización. Su objetivo es centralizar la gestión de empleados, el control de acceso, la comunicación interna y los flujos de compras en una única plataforma segura, mantenible y rentable.
+La plantilla es una base de intranet empresarial modular diseñada para ser el núcleo operativo digital de cualquier organización. Su objetivo es centralizar la gestión de empleados, el control de acceso, la comunicación interna y los flujos de compras en una única plataforma segura, mantenible y rentable.
 
 La solución está construida sobre **.NET 10 LTS** y **Blazor**, garantizando un soporte extendido hasta noviembre de 2028, y aplicando principios de *Security by Design* y *Clean Architecture* desde el primer día.
 
@@ -234,7 +237,7 @@ La solución está construida sobre **.NET 10 LTS** y **Blazor**, garantizando u
 
 ### 5. Portal de Cliente (`ClientPortalUser`) — Fase 2
 
-> Rol externo reservado para clientes de MemByte. Permitiría acceso restringido, de sólo lectura, al estado de sus propios proyectos, sin visibilidad sobre datos internos de la empresa (empleados, otros clientes, compras, facturación interna).
+> Rol externo reservado para clientes de la empresa propietaria de cada intranet. Permitiría acceso restringido, de sólo lectura, al estado de sus propios proyectos, sin visibilidad sobre datos internos de la empresa (empleados, otros clientes, compras, facturación interna).
 
 #### Alcance previsto (no implementado)
 - Consulta del estado de sus propios proyectos y entregables.
@@ -265,7 +268,7 @@ Este rol **no se añade a la Matriz de Permisos por Módulo** hasta que se aprue
 
 | KPI | Meta | Medición |
 |-----|------|----------|
-| Proyectos de cliente activos gestionados en la plataforma | ≥ 90 % de los proyectos en curso de MemByte | Proyectos registrados en la plataforma / total de proyectos activos |
+| Proyectos de cliente activos gestionados en la plataforma | ≥ 90 % de los proyectos en curso de la empresa | Proyectos registrados en la plataforma / total de proyectos activos |
 | Horas facturables registradas a tiempo | ≥ 95 % dentro de las 48 h siguientes a su realización | Registros de horas con timestamp de creación ≤ 48 h desde la fecha trabajada |
 | Tiempo desde entregable completado hasta borrador de factura | < 24 horas | Marca de tiempo de cierre de entregable → marca de tiempo de generación del borrador |
 

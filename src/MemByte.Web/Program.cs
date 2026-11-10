@@ -1,4 +1,5 @@
 using MemByte.Application.Auth;
+using MemByte.Application.Configuration;
 using MemByte.Application.Catalog;
 using MemByte.Application.Orders;
 using MemByte.Application.Clients;
@@ -29,6 +30,10 @@ using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.AddOptions<IntranetOptions>()
+	.Bind(builder.Configuration.GetSection(IntranetOptions.SectionName))
+	.ValidateDataAnnotations()
+	.ValidateOnStart();
 
 // Data Protection: en producción usar /home, que sí es escribible en App Service Linux.
 // En local, seguir usando ContentRootPath para que las claves queden dentro del proyecto.
@@ -45,7 +50,7 @@ var dataProtectionKeysPath = builder.Environment.IsProduction()
 // con más de una instancia, además, hace falta compartir estas claves entre
 // instancias (ej. Azure Blob Storage) para evitar el mismo problema.
 builder.Services.AddDataProtection()
-	.SetApplicationName("MemByte-IM")
+	.SetApplicationName(builder.Configuration["DataProtection:ApplicationName"] ?? builder.Environment.ApplicationName)
 	.PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeysPath));
 
 // Add services to the container.

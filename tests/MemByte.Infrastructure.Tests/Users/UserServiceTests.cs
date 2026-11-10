@@ -1,10 +1,12 @@
 using MemByte.Application.Notifications;
+using MemByte.Application.Configuration;
 using MemByte.Application.Users;
 using MemByte.Domain.Clients;
 using MemByte.Domain.Employees;
 using MemByte.Infrastructure.Identity;
 using MemByte.Infrastructure.Tests.Auth;
 using MemByte.Infrastructure.Users;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace MemByte.Infrastructure.Tests.Users;
@@ -30,6 +32,31 @@ public class UserServiceTests
 
 	private static UserService CreateSut(AuthTestHost host, IEmailSender? emailSender = null) =>
 		new(host.UserManager, host.DbContext, emailSender ?? new RecordingEmailSender());
+
+	[Theory]
+	[InlineData("Intranet")]
+	[InlineData("Portal de Empresa Norte")]
+	public async Task AccountEmails_UseConfiguredApplicationName(string applicationName)
+	{
+		using var host = new AuthTestHost();
+		var emailSender = new RecordingEmailSender();
+		var options = Options.Create(new IntranetOptions { ApplicationName = applicationName });
+		var sut = new UserService(host.UserManager, host.DbContext, emailSender, intranetOptions: options);
+
+		var created = await sut.CreateAsync(new CreateUserRequest("person@example.test", "Persona", null, null, []));
+		Assert.True(created.Succeeded);
+		var reset = await sut.ResetPasswordAsync(created.User!.Id);
+
+		Assert.True(reset.Succeeded);
+		Assert.Equal(2, emailSender.SentMessages.Count);
+		Assert.Equal($"Activa tu cuenta en {applicationName}", emailSender.SentMessages[0].Subject);
+		Assert.Equal($"Restablece tu contraseña en {applicationName}", emailSender.SentMessages[1].Subject);
+		Assert.All(emailSender.SentMessages, message =>
+		{
+			Assert.Contains(applicationName, message.Body);
+			Assert.DoesNotContain("MemByte", message.Body);
+		});
+	}
 
 	[Fact]
 	public async Task GetAllAsync_ReturnsAllUsersOrderedByDisplayName()

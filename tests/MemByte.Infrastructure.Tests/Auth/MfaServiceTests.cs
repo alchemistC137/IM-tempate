@@ -1,5 +1,7 @@
 using MemByte.Application.Auth;
+using MemByte.Application.Configuration;
 using MemByte.Infrastructure.Identity;
+using Microsoft.Extensions.Options;
 using MfaServiceImpl = MemByte.Infrastructure.Auth.MfaService;
 
 namespace MemByte.Infrastructure.Tests.Auth;
@@ -18,6 +20,29 @@ public class MfaServiceTests
 
 		Assert.False(string.IsNullOrWhiteSpace(setupInfo.SharedKey));
 		Assert.StartsWith("otpauth://totp/", setupInfo.AuthenticatorUri);
+		Assert.Contains("issuer=Mi%20empresa%20-%20Intranet", setupInfo.AuthenticatorUri);
+	}
+
+	[Theory]
+	[InlineData("Empresa Norte", "Portal del equipo")]
+	[InlineData("Compañía & Hijos", "Portal / Área?")]
+	public async Task BeginAuthenticatorSetupAsync_UsesEncodedCompanyIdentity(string companyName, string applicationName)
+	{
+		using var host = new AuthTestHost();
+		var user = await host.CreateUserAsync("person@example.test", AuthTestHost.ValidPassword);
+		var options = Options.Create(new IntranetOptions
+		{
+			CompanyName = companyName,
+			ApplicationName = applicationName
+		});
+		var sut = new MfaServiceImpl(host.UserManager, host.SignInManager, host.DbContext, intranetOptions: options);
+
+		var setupInfo = await sut.BeginAuthenticatorSetupAsync(user.Id);
+
+		var encodedIssuer = Uri.EscapeDataString($"{companyName} - {applicationName}");
+		Assert.StartsWith($"otpauth://totp/{encodedIssuer}:person%40example.test?", setupInfo.AuthenticatorUri);
+		Assert.Contains($"&issuer={encodedIssuer}&digits=6", setupInfo.AuthenticatorUri);
+		Assert.DoesNotContain("MemByte", setupInfo.AuthenticatorUri);
 	}
 
 	[Fact]

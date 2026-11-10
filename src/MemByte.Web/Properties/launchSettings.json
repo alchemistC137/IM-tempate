@@ -13,10 +13,7 @@
       "commandName": "Project",
       "launchBrowser": true,
       "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development",
-        "MemByteIM__SeedAdmin__Enabled": "true",
-        "MemByteIM__SeedAdmin__Email": "admin@membyte.local",
-        "MemByteIM__SeedAdmin__Password": "TuPass#MuyFuerte2026"
+        "ASPNETCORE_ENVIRONMENT": "Development"
       },
       "dotnetRunMessages": true,
       "applicationUrl": "https://localhost:7118;http://localhost:5182"

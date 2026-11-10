@@ -8,7 +8,7 @@
 @inject IClientService ClientService
 @inject NavigationManager NavigationManager
 
-<PageTitle>Catálogo de @(client?.Name ?? "cliente") - MemByte-IM</PageTitle>
+<PageTitle>Catálogo de @(client?.Name ?? "cliente") - @Intranet.Value.ApplicationName</PageTitle>
 
 <div class="mb-3">
     <a href="/catalog" class="btn btn-outline-secondary btn-sm">
